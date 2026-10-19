@@ -1,0 +1,14 @@
+# Build output
+.build/
+build/
+dist/
+*.dmg
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.xcodeproj/
+.swiftpm/

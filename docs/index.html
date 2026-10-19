@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoot — Private meeting notes for your Mac</title>
+<meta name="description" content="Hoot lives in your MacBook's notch, transcribes both sides of any call on your Mac, and hands you the summary when you hang up. Free and open source.">
+<meta property="og:title" content="Hoot — Private meeting notes for your Mac">
+<meta property="og:description" content="Lives in the notch. Transcribes on-device. Summaries by Apple Intelligence. Nothing leaves your Mac.">
+<meta property="og:image" content="https://sagar-darji.github.io/hoot/assets/island-open-live.png">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<style>
+  :root {
+    --bg: #fbfbfd;
+    --bg-alt: #f2f2f7;
+    --card: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #6e6e73;
+    --line: rgba(0, 0, 0, 0.08);
+    --accent: #0a84ff;
+    --accent-ink: #ffffff;
+    --you: #4d84ff;
+    --them: #ff5c9e;
+    --shadow: 0 20px 60px rgba(30, 20, 70, 0.12);
+    --hero-a: #1c2a6b;
+    --hero-b: #5a2a86;
+    --hero-c: #d4537e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000;
+      --bg-alt: #0d0d10;
+      --card: #16161a;
+      --ink: #f5f5f7;
+      --muted: #a1a1a6;
+      --line: rgba(255, 255, 255, 0.1);
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --bg-alt: #0d0d10;
+    --card: #16161a;
+    --ink: #f5f5f7;
+    --muted: #a1a1a6;
+    --line: rgba(255, 255, 255, 0.1);
+    --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  img { max-width: 100%; display: block; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+  /* Nav */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+  nav .links a { text-decoration: none; color: var(--muted); }
+  nav .links a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 980px;
+    background: var(--accent); color: var(--accent-ink);
+    text-decoration: none; font-weight: 600; font-size: 16px;
+    transition: transform .15s ease, filter .15s ease;
+  }
+  .btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .btn.small { padding: 7px 14px; font-size: 14px; }
+  .btn.ghost { background: transparent; color: var(--accent); }
+  .btn svg { width: 18px; height: 18px; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 72px 0 0; }
+  .hero .icon { width: 112px; height: 112px; margin: 0 auto 22px; filter: drop-shadow(0 14px 28px rgba(80, 40, 160, .28)); }
+  .hero h1 { font-size: clamp(38px, 6.4vw, 72px); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 18px; font-weight: 700; }
+  .hero h1 .grad { background: linear-gradient(90deg, var(--you), #9b6bff 50%, var(--them)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lead { font-size: clamp(18px, 2.3vw, 22px); color: var(--muted); max-width: 720px; margin: 0 auto 30px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: center; }
+  .req { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+  /* MacBook top edge with the notch and the island on it */
+  .screen {
+    position: relative; margin: 56px auto 0; max-width: 980px; aspect-ratio: 16 / 7.2;
+    border-radius: 22px 22px 0 0; overflow: hidden;
+    background:
+      radial-gradient(1200px 500px at 20% 0%, rgba(255,255,255,.22), transparent 60%),
+      linear-gradient(135deg, var(--hero-a), var(--hero-b) 55%, var(--hero-c));
+    box-shadow: var(--shadow);
+    border: 10px solid #0b0b0d; border-bottom: none;
+  }
+  .menubar { position: absolute; inset: 0 0 auto 0; height: 7.6%; background: rgba(0,0,0,.18); backdrop-filter: blur(12px); }
+  .island {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 56%; filter: drop-shadow(0 18px 30px rgba(0,0,0,.35));
+  }
+  .island img { width: 100%; }
+  .float-card {
+    position: absolute; right: 4%; bottom: -6%; width: 30%;
+    border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,.35);
+  }
+
+  /* Sections */
+  section { padding: 96px 0; }
+  section.alt { background: var(--bg-alt); }
+  h2 { font-size: clamp(30px, 4.6vw, 48px); letter-spacing: -0.025em; line-height: 1.1; margin: 0 0 14px; text-align: center; }
+  .sub { text-align: center; color: var(--muted); font-size: 19px; max-width: 680px; margin: 0 auto 48px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px;
+  }
+  .card .glyph {
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 16px;
+    color: white; font-size: 22px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.01em; }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+  .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+  .shot figure { margin: 0; }
+  .shot img { border-radius: 14px; box-shadow: var(--shadow); }
+  .shot figcaption { margin-top: 14px; text-align: center; color: var(--muted); font-size: 15px; }
+  .shot figcaption strong { color: var(--ink); display: block; font-size: 16px; }
+
+  .privacy { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: center; }
+  .privacy h2, .privacy .sub { text-align: left; margin-left: 0; }
+  .checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+  .checks li { display: flex; gap: 12px; align-items: flex-start; }
+  .checks li::before {
+    content: "✓"; flex: none; width: 24px; height: 24px; border-radius: 50%;
+    background: #34c759; color: white; font-weight: 700; font-size: 14px; display: grid; place-items: center; margin-top: 1px;
+  }
+
+  .steps { counter-reset: step; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: white; font-weight: 700; margin-bottom: 12px;
+  }
+  .step h3 { margin: 0 0 6px; font-size: 17px; }
+  .step p { margin: 0; color: var(--muted); font-size: 15px; }
+  kbd { font: 600 13px/1 -apple-system, system-ui; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-alt); }
+
+  .faq { max-width: 760px; margin: 0 auto; }
+  details { border-bottom: 1px solid var(--line); padding: 18px 4px; }
+  summary { cursor: pointer; font-weight: 600; font-size: 18px; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 22px; line-height: 1; }
+  details[open] summary::after { content: "–"; }
+  details p { color: var(--muted); margin: 10px 0 0; }
+
+  .final { text-align: center; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; justify-content: space-between; }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 860px) {
+    .grid, .shots { grid-template-columns: 1fr 1fr; }
+    .steps { grid-template-columns: 1fr 1fr; }
+    .privacy { grid-template-columns: 1fr; }
+    .float-card { display: none; }
+    .island { width: 86%; }
+  }
+  @media (max-width: 560px) {
+    nav .links { display: none; }
+    .grid, .shots, .steps { grid-template-columns: 1fr; }
+    section { padding: 64px 0; }
+    .screen { aspect-ratio: 4 / 3; border-width: 6px; }
+    .island { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.png" alt="">Hoot</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Sagar-Darji/hoot">GitHub</a>
+    </div>
+    <a class="btn small" href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="icon" src="assets/icon.png" alt="Hoot app icon: a glass origami crane">
+    <h1>Meeting notes that<br><span class="grad">stay on your Mac.</span></h1>
+    <p class="lead">Hoot lives in your MacBook's notch, transcribes both sides of any call right on your Mac, and hands you the summary and action items when you hang up.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1ZM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"/></svg>
+        Download for Mac
+      </a>
+      <a class="btn ghost" href="https://github.com/Sagar-Darji/hoot">View on GitHub →</a>
+    </div>
+    <div class="req">Free &amp; open source · Apple Silicon · macOS 26 or later</div>
+  </div>
+  <div class="wrap">
+    <div class="screen" role="img" aria-label="A MacBook screen with Hoot open around the notch, showing a live transcript line, a Stop button and quick actions">
+      <div class="menubar"></div>
+      <div class="island"><img src="assets/island-open-live.png" alt=""></div>
+      <div class="float-card"><img src="assets/panel-transcript.png" alt=""></div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything a meeting needs. Nothing it doesn't.</h2>
+    <p class="sub">Hoot stays out of the way until you need it — then it's one click, one shortcut, or one glance at the notch.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="glyph" style="background:#1d1d1f">◖◗</div>
+        <h3>Lives in the notch</h3>
+        <p>A Dynamic Island for your MacBook: a timer and live voice bars while recording, a drop-down with Record, Transcript, Notes and AI when you point at it.</p>
+      </div>
+      <div class="card">
+        <div class="glyph" style="background:linear-gradient(135deg,var(--you),var(--them))">◉</div>
+        <h3>Both sides, on-device</h3>
+        <p>Your mic and the call's audio are transcribed separately with Whisper — on your Mac. Works with Zoom, Meet, Teams, FaceTime, Slack and anything else.</p>
+      </div>
+      <div class="card">
+        <div class="glyph" style="background:#8e5bff">✦</div>
+        <h3>Summary &amp; action items</h3>
+        <p>When you stop, Apple Intelligence writes the summary, decisions, action items and open questions — on-device, no account, no upload.</p>
+      </div>
+      <div class="card">
+        <div class="glyph" style="background:#34c759">❡</div>
+        <h3>Speaker notes &amp; teleprompter</h3>
+        <p>Keep talking points beside the call, link a Google Doc that updates live, and let the teleprompter scroll while you present.</p>
+      </div>
+      <div class="card">
+        <div class="glyph" style="background:#ff9f0a">✺</div>
+        <h3>AI Assist</h3>
+        <p>Answers from Claude, ChatGPT and Gemini show up beside the call. Or ask “What should I say?” and get an answer from the meeting so far.</p>
+      </div>
+      <div class="card">
+        <div class="glyph" style="background:#636366">⦸</div>
+        <h3>Invisible when sharing</h3>
+        <p>Hoot is excluded from screen sharing and recordings, so your notes and transcript are for your eyes only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>One window. Three superpowers.</h2>
+    <p class="sub">Transcript, notes and AI live together in a single Liquid Glass window that floats over your call.</p>
+    <div class="shots">
+      <div class="shot"><figure><img src="assets/panel-transcript.png" alt="Hoot's transcript, laid out like Messages"><figcaption><strong>Transcript</strong>Laid out like Messages — you on the right, everyone else on the left.</figcaption></figure></div>
+      <div class="shot"><figure><img src="assets/panel-notes.png" alt="Hoot's speaker notes"><figcaption><strong>Speaker notes</strong>Your cue card, a linked doc, and a teleprompter.</figcaption></figure></div>
+      <div class="shot"><figure><img src="assets/panel-ai.png" alt="Hoot's AI Assist tab"><figcaption><strong>AI Assist</strong>Answers from your AI apps, and Ask about the meeting.</figcaption></figure></div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap privacy">
+    <div>
+      <h2>Private by design.</h2>
+      <p class="sub">Most meeting tools upload your conversations. Hoot doesn't have a server to upload them to.</p>
+      <ul class="checks">
+        <li>Speech is transcribed by Whisper running on your Mac.</li>
+        <li>Summaries and Ask use Apple Intelligence on-device.</li>
+        <li>Notes are plain Markdown files in Documents › Meeting Notes.</li>
+        <li>No account, no tracking, no analytics. Open source, so you can check.</li>
+        <li>Hidden from screen sharing. And please — tell people when you're recording.</li>
+      </ul>
+    </div>
+    <div class="island" style="position:relative;left:auto;transform:none;width:100%;max-width:520px;margin:0 auto;">
+      <img src="assets/island-open.png" alt="Hoot's island noticing a Zoom call and offering to record it">
+    </div>
+  </div>
+</section>
+
+<section id="install" class="alt">
+  <div class="wrap">
+    <h2>Up and running in a minute.</h2>
+    <p class="sub">Needs a Mac with Apple Silicon (M1 or newer) and macOS 26 or later.</p>
+    <div class="steps">
+      <div class="step"><h3>Download</h3><p>Get <a href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">Hoot.dmg</a>, open it and drag Hoot to Applications.</p></div>
+      <div class="step"><h3>Open it</h3><p>If macOS says it can't verify Hoot: click Done, then System Settings › Privacy &amp; Security › <em>Open Anyway</em>. Only once.</p></div>
+      <div class="step"><h3>Allow two things</h3><p>The Setup checklist asks for the Microphone and System Audio, then downloads the speech model (≈550 MB) once.</p></div>
+      <div class="step"><h3>Take notes</h3><p>Point at the notch and hit Record — or press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>R</kbd> in any app.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap faq">
+    <h2>Questions</h2>
+    <details><summary>Is Hoot really free?</summary><p>Yes. It's open source under the MIT license. There's no paid tier and no account.</p></details>
+    <details><summary>Which call apps does it work with?</summary><p>All of them. Hoot listens to your microphone and your Mac's audio output, so it works with Zoom, Google Meet, Teams, FaceTime, Slack huddles, Discord, WhatsApp — even a YouTube video.</p></details>
+    <details><summary>My Mac has no notch. Can I still use it?</summary><p>Yes — Hoot becomes a small floating Liquid Glass bubble you can drag anywhere. You can also choose the bubble on a MacBook in Settings.</p></details>
+    <details><summary>Why does macOS warn me the first time?</summary><p>Hoot isn't distributed through the App Store, so macOS asks you to confirm once. Use System Settings › Privacy &amp; Security › Open Anyway. The source is on GitHub if you'd like to build it yourself.</p></details>
+    <details><summary>Which languages does it understand?</summary><p>Whisper handles about 100 languages and can detect them automatically. You can also pick one in Settings › General.</p></details>
+    <details><summary>Does it slow my Mac down?</summary><p>At rest Hoot uses about 120 MB and no CPU. The speech engine only loads when a meeting starts and is released a few minutes after it ends.</p></details>
+    <details><summary>How do updates work?</summary><p>Hoot checks GitHub once a day and shows “Update to Hoot X” in its menu when a new version is out.</p></details>
+  </div>
+</section>
+
+<section class="alt final">
+  <div class="wrap">
+    <img src="assets/icon.png" alt="" style="width:88px;height:88px;margin:0 auto 18px;">
+    <h2>Never miss what was said.</h2>
+    <p class="sub">Free for every Mac with Apple Silicon.</p>
+    <a class="btn" href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">Download Hoot</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Hoot · MIT License · Made by <a href="https://github.com/Sagar-Darji">Sagar Darji</a></span>
+    <span><a href="https://github.com/Sagar-Darji/hoot/releases">Releases</a> · <a href="https://github.com/Sagar-Darji/hoot/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/Sagar-Darji/hoot/blob/main/THIRD_PARTY_NOTICES.md">Notices</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

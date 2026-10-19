@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Sagar-Darji/hoot/actions/workflows/build.yml"><img src="https://github.com/Sagar-Darji/hoot/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/Sagar-Darji/hoot/releases/latest"><img src="https://img.shields.io/github/v/release/Sagar-Darji/hoot" alt="Latest release"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg"><b>⬇︎ Download Hoot</b></a> ·
   <a href="https://sagar-darji.github.io/hoot/">Website</a> ·
   <a href="CHANGELOG.md">Changelog</a>

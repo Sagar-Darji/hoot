@@ -1,58 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What the bubble / notch island can ask the app to do.
-struct OverlayActions {
-    var toggleTranscript: () -> Void
-    var toggleNotes: () -> Void
-    var toggleAssist: () -> Void
-    var togglePanel: () -> Void
-    var openSettings: () -> Void
-    var quit: () -> Void
-}
-
-/// Hover and "peek" state shared by the bubble and the island (SwiftUI's @State macro isn't available
-/// without Xcode's macro plugins, so view-local state lives in small objects like this one).
-final class OverlayUIState: ObservableObject {
-    @Published var hovering = false
-    @Published var peeking = false          // briefly open to announce something (a call, a new answer, an error)
-    var dragStartMouse: NSPoint?
-    var dragStartOrigin: NSPoint?
-    let windowTitle: String
-    private var exitWatch: Timer?
-    private var peekWork: DispatchWorkItem?
-
-    init(windowTitle: String) { self.windowTitle = windowTitle }
-
-    /// macOS sometimes never sends "mouse exited" to a floating panel (e.g. when it resizes under the
-    /// pointer or a button was clicked), so while hovering we also check where the mouse really is.
-    func setHovering(_ on: Bool) {
-        hovering = on
-        exitWatch?.invalidate()
-        exitWatch = nil
-        guard on else { return }
-        let title = windowTitle
-        exitWatch = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] timer in
-            guard let self else { return timer.invalidate() }
-            guard self.dragStartMouse == nil,
-                  let window = NSApp.windows.first(where: { $0 is FloatingPanel && $0.title == title }) else { return }
-            if !window.frame.insetBy(dx: 2, dy: 2).contains(NSEvent.mouseLocation) {
-                self.hovering = false
-                timer.invalidate()
-            }
-        }
-    }
-
-    func peek(seconds: Double = 6) {
-        peekWork?.cancel()
-        peeking = true
-        let work = DispatchWorkItem { [weak self] in self?.peeking = false }
-        peekWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
-    }
-}
-
-/// The words and states the bubble and island show, in one place so they always agree.
+/// The words and states the island shows, in one place so every view agrees.
 @MainActor
 enum HootStatus {
     static func mood(_ recorder: Recorder) -> HootOrb.Mood {
@@ -108,11 +57,11 @@ enum HootStatus {
     }
 }
 
-/// The right-click menu, shared by the bubble and the island.
+/// The right-click menu on the island.
 struct HootMenuItems: View {
     @ObservedObject var recorder: Recorder
     @ObservedObject var updates: UpdateChecker
-    let actions: OverlayActions
+    let model: IslandModel
 
     var body: some View {
         Button {
@@ -123,11 +72,11 @@ struct HootMenuItems: View {
         }
         .keyboardShortcut("r", modifiers: [.control, .option])
         Divider()
-        Button(action: actions.toggleTranscript) { Label("Transcript", systemImage: "text.bubble") }
+        Button { model.open(.transcript) } label: { Label("Transcript", systemImage: "text.bubble") }
             .keyboardShortcut("t", modifiers: [.control, .option])
-        Button(action: actions.toggleNotes) { Label("Speaker Notes", systemImage: "list.bullet.clipboard") }
+        Button { model.open(.notes) } label: { Label("Speaker Notes", systemImage: "list.bullet.clipboard") }
             .keyboardShortcut("n", modifiers: [.control, .option])
-        Button(action: actions.toggleAssist) { Label("AI Assist", systemImage: "sparkles") }
+        Button { model.open(.assist) } label: { Label("AI Assist", systemImage: "sparkles") }
             .keyboardShortcut("a", modifiers: [.control, .option])
         Divider()
         Button {
@@ -155,13 +104,12 @@ struct HootMenuItems: View {
                 Label("Update to Hoot \(update.version)…", systemImage: "arrow.down.circle")
             }
         }
-        Button(action: actions.openSettings) { Label("Settings…", systemImage: "gearshape") }
-            .keyboardShortcut(",", modifiers: .command)
-        Button("Quit Hoot", action: actions.quit)
+        Button { model.open(.settings) } label: { Label("Settings…", systemImage: "gearshape") }
+        Button("Quit Hoot") { NSApp.terminate(nil) }
     }
 }
 
-/// The record button's crane as transparent glass, picked from frames rendered at a few wing positions.
+/// The crane as transparent glass, picked from frames rendered at a few wing positions.
 struct GlassCrane: View {
     var lift: CGFloat
     var size: CGFloat

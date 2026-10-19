@@ -42,9 +42,6 @@ final class AIAssist: ObservableObject {
     @Published var fontSize: CGFloat = CGFloat(UserDefaults.standard.object(forKey: "assistFontSize") as? Double ?? 14) {
         didSet { UserDefaults.standard.set(Double(fontSize), forKey: "assistFontSize") }
     }
-    @Published var opacity: Double = UserDefaults.standard.object(forKey: "assistOpacity") as? Double ?? 1 {
-        didSet { UserDefaults.standard.set(opacity, forKey: "assistOpacity") }
-    }
 
     let drop = DropServer()
     @Published private(set) var dropError: String?

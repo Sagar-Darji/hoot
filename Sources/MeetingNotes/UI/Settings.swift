@@ -6,23 +6,14 @@ import SwiftUI
 /// App-wide preferences that aren't owned by a feature.
 @MainActor
 final class Preferences: ObservableObject {
-    enum Tab: Hashable { case setup, general, ai, about }
-
-    @Published var tab: Tab = .setup
-    /// Show Hoot as a Dynamic Island around the notch (on Macs that have one).
-    @Published var useNotch = UserDefaults.standard.object(forKey: "useNotch") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(useNotch, forKey: "useNotch")
-            onPresenceChange?()
-        }
+    /// Show the small crane beside the notch while Hoot is idle (so you always know it's there).
+    @Published var restVisible = UserDefaults.standard.object(forKey: "restVisible") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(restVisible, forKey: "restVisible") }
     }
     @Published var launchAtLogin = LaunchAtLogin.isOn
-    var onPresenceChange: (() -> Void)?
-
-    var hasNotch: Bool { NotchGeometry.current() != nil }
 }
 
-/// Live status of everything Hoot needs, for the Setup checklist. It only polls while Settings is open.
+/// Live status of everything Hoot needs, for the Setup checklist. It only polls while Settings is showing.
 @MainActor
 final class SetupStatus: ObservableObject {
     @Published private(set) var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -57,100 +48,192 @@ final class SetupStatus: ObservableObject {
     }
 }
 
-struct SettingsView: View {
+/// Settings and first-run setup, inside the island like everything else.
+struct SettingsPane: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject var recorder: Recorder
     @ObservedObject var assist: AIAssist
     @ObservedObject var setup: SetupStatus
     @ObservedObject var updates: UpdateChecker
+    let welcome: Bool
 
     var body: some View {
-        TabView(selection: $prefs.tab) {
-            SetupPane(recorder: recorder, assist: assist, setup: setup)
-                .tabItem { Label("Setup", systemImage: "checklist") }.tag(Preferences.Tab.setup)
-            GeneralPane(prefs: prefs, recorder: recorder)
-                .tabItem { Label("General", systemImage: "gearshape") }.tag(Preferences.Tab.general)
-            AIPane(assist: assist, setup: setup)
-                .tabItem { Label("AI", systemImage: "sparkles") }.tag(Preferences.Tab.ai)
-            AboutPane(updates: updates)
-                .tabItem { Label("About", systemImage: "info.circle") }.tag(Preferences.Tab.about)
+        ScrollView {
+            VStack(spacing: 18) {
+                if welcome || !setup.essentialsReady { hello }
+                group("Setup") { setupRows }
+                group("General") { generalRows }
+                group("AI") { aiRows }
+                group("Shortcuts — in any app") { shortcutRows }
+                about
+            }
+            .padding(.bottom, 6)
         }
-        .frame(width: 560, height: 520)
+        .scrollIndicators(.never)
+        .onAppear { setup.startWatching() }
+        .onDisappear { setup.stopWatching() }
     }
-}
 
-// MARK: - Setup
+    // MARK: Welcome
 
-private struct SetupPane: View {
-    @ObservedObject var recorder: Recorder
-    @ObservedObject var assist: AIAssist
-    @ObservedObject var setup: SetupStatus
+    private var hello: some View {
+        HStack(spacing: 14) {
+            GlassCrane(lift: 0.3, size: 54)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(setup.essentialsReady ? "Hoot is ready" : "Welcome to Hoot")
+                    .font(Theme.Font.title).foregroundStyle(Theme.text)
+                Text(setup.essentialsReady
+                     ? "Point at the notch anytime, or press \(HotKeys.record.label) in any app to take notes."
+                     : "Three quick steps and Hoot can take notes in any call. Everything stays on this Mac.")
+                    .font(Theme.Font.callout).foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .themeCard(padding: 16)
+    }
 
-    var body: some View {
-        Form {
-            Section {
-                HStack(spacing: 14) {
-                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 52, height: 52)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(setup.essentialsReady ? "Hoot is ready" : "Set up Hoot")
-                            .font(.title3.weight(.semibold))
-                        Text(setup.essentialsReady
-                             ? "Click the bird (or press \(HotKeys.record.label)) during any call to take notes."
-                             : "Three quick steps and Hoot can take notes in any call. Everything stays on this Mac.")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+    // MARK: Sections
+
+    @ViewBuilder private var setupRows: some View {
+        StatusRow(symbol: "mic.fill", title: "Microphone", detail: "So your side of the call is transcribed.",
+                  state: setup.microphone == .authorized ? .done : .needed,
+                  actionTitle: setup.microphone == .notDetermined ? "Allow" : "Open Settings") {
+            if setup.microphone == .notDetermined {
+                AVCaptureDevice.requestAccess(for: .audio) { _ in Task { @MainActor in setup.refresh() } }
+            } else {
+                openPrivacy("Privacy_Microphone")
+            }
+        }
+        divider
+        StatusRow(symbol: "speaker.wave.2.fill", title: "Call audio",
+                  detail: setup.screenAudio ? "Hoot can hear the other people in the call."
+                                            : "Allow “Screen & System Audio Recording” — Hoot only uses the audio — then reopen Hoot.",
+                  state: setup.screenAudio ? .done : .needed, actionTitle: "Allow",
+                  secondaryTitle: setup.screenAudio ? nil : "Reopen Hoot", secondary: relaunch) {
+            if !CGRequestScreenCaptureAccess() { openPrivacy("Privacy_ScreenCapture") }
+        }
+        divider
+        StatusRow(symbol: "waveform", title: "Speech model", detail: "Transcribes on this Mac. About 550 MB, downloaded once.",
+                  state: modelState, actionTitle: "Download") { recorder.prepareModel() }
+        divider
+        StatusRow(symbol: "sparkles", title: "Read AI apps", detail: "Optional — answers from Claude, ChatGPT and Gemini appear by themselves.",
+                  state: setup.accessibility ? .done : .optional, actionTitle: "Allow") { assist.requestAccessibility() }
+        divider
+        StatusRow(symbol: "apple.intelligence", title: "Apple Intelligence",
+                  detail: setup.intelligence ?? "Summaries and Ask, on this Mac.",
+                  state: setup.intelligence == nil ? .done : .optional, actionTitle: "Open Settings") {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!)
+        }
+    }
+
+    @ViewBuilder private var generalRows: some View {
+        ToggleRow(title: "Show Hoot beside the notch", detail: "A small crane so you always know Hoot is there.", isOn: $prefs.restVisible)
+        divider
+        ToggleRow(title: "Open at login", isOn: Binding(
+            get: { prefs.launchAtLogin },
+            set: { LaunchAtLogin.set($0); prefs.launchAtLogin = LaunchAtLogin.isOn }))
+        divider
+        Row(title: "Language") {
+            Picker("", selection: $recorder.language) {
+                Text("Automatic").tag("auto")
+                Divider()
+                Text("English").tag("en")
+                Text("Hindi").tag("hi")
+                Text("Gujarati").tag("gu")
+                Text("Spanish").tag("es")
+                Text("French").tag("fr")
+                Text("German").tag("de")
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+        }
+        divider
+        ToggleRow(title: "Not wearing headphones", detail: "Filters the call's sound out of your microphone.", isOn: $recorder.echoCancellation)
+        divider
+        ToggleRow(title: "Keep separate audio tracks", detail: "One mixed recording is always kept; separate tracks use 4× the space.",
+                  isOn: $recorder.keepTracks)
+        divider
+        Row(title: "Notes", detail: "Documents › Meeting Notes") {
+            ThemeButton(title: "Show in Finder") {
+                try? FileManager.default.createDirectory(at: Recorder.notesRoot, withIntermediateDirectories: true)
+                NSWorkspace.shared.open(Recorder.notesRoot)
+            }
+        }
+    }
+
+    @ViewBuilder private var aiRows: some View {
+        ToggleRow(title: "Read answers from Claude, ChatGPT and Gemini", isOn: $assist.autoRead)
+        divider
+        ToggleRow(title: "Show answers I copy", detail: "Works from your iPhone and iPad too (Universal Clipboard).", isOn: $assist.catchClipboard)
+        divider
+        ToggleRow(title: "Receive answers over Wi-Fi", detail: "For Android or Windows: a private page protected by a secret link.",
+                  isOn: $assist.receiveFromDevices)
+    }
+
+    @ViewBuilder private var shortcutRows: some View {
+        Row(title: "Start or stop recording") { keys(HotKeys.record.label) }
+        divider
+        Row(title: "Transcript") { keys(HotKeys.transcript.label) }
+        divider
+        Row(title: "Speaker notes") { keys(HotKeys.notes.label) }
+        divider
+        Row(title: "AI Assist") { keys(HotKeys.assist.label) }
+    }
+
+    private var about: some View {
+        VStack(spacing: 10) {
+            Text("Hoot \(UpdateChecker.currentVersion)").font(Theme.Font.headline).foregroundStyle(Theme.text)
+            HStack(spacing: 8) {
+                if let update = updates.available {
+                    ThemeButton(title: "Download \(update.version)", symbol: "arrow.down", role: .primary) {
+                        NSWorkspace.shared.open(update.download ?? update.page)
                     }
+                } else {
+                    ThemeButton(title: updates.checking ? "Checking…" : "Check for Updates") { Task { await updates.check() } }
+                        .disabled(updates.checking)
                 }
-                .padding(.vertical, 4)
+                ThemeButton(title: "Website") { NSWorkspace.shared.open(UpdateChecker.website) }
+                ThemeButton(title: "Quit Hoot") { NSApp.terminate(nil) }
             }
-            Section("Required") {
-                SetupRow(symbol: "mic.fill", title: "Microphone",
-                         detail: "So your side of the call is transcribed.",
-                         state: microphoneState, actionTitle: setup.microphone == .notDetermined ? "Allow…" : "Open Settings…") {
-                    if setup.microphone == .notDetermined {
-                        AVCaptureDevice.requestAccess(for: .audio) { _ in Task { @MainActor in setup.refresh() } }
-                    } else {
-                        openPrivacy("Privacy_Microphone")
-                    }
-                }
-                SetupRow(symbol: "speaker.wave.2.fill", title: "Screen & System Audio Recording",
-                         detail: "So Hoot can hear the other people in the call. Hoot only uses the audio — it never records your screen. Reopen Hoot after allowing.",
-                         state: setup.screenAudio ? .done : .needed, actionTitle: "Allow…",
-                         secondaryTitle: setup.screenAudio ? nil : "Reopen Hoot", secondary: relaunch) {
-                    if !CGRequestScreenCaptureAccess() { openPrivacy("Privacy_ScreenCapture") }
-                }
-                SetupRow(symbol: "waveform", title: "Speech model",
-                         detail: "Transcribes on this Mac, nothing is uploaded. About 550 MB, downloaded once.",
-                         state: modelState, actionTitle: "Download") {
-                    recorder.prepareModel()
-                }
+            if let result = updates.lastResult {
+                Text(result).font(Theme.Font.caption).foregroundStyle(Theme.tertiary)
             }
-            Section("Optional") {
-                SetupRow(symbol: "sparkles", title: "Accessibility",
-                         detail: "Lets AI Assist pick up answers from Claude, ChatGPT and Gemini by itself.",
-                         state: setup.accessibility ? .done : .optional, actionTitle: "Allow…") {
-                    assist.requestAccessibility()
-                }
-                SetupRow(symbol: "apple.intelligence", title: "Apple Intelligence",
-                         detail: setup.intelligence ?? "Writes meeting summaries and answers questions about the meeting, on this Mac.",
-                         state: setup.intelligence == nil ? .done : .optional, actionTitle: "Open Settings…") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!)
-                }
+            Button("Open-source notices") {
+                if let url = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md") { NSWorkspace.shared.open(url) }
             }
+            .buttonStyle(.plain)
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.tertiary)
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
     }
 
-    private var microphoneState: SetupRow.State {
-        switch setup.microphone {
-        case .authorized: return .done
-        default: return .needed
+    // MARK: Pieces
+
+    private func group<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 6) {
+            ThemeSectionTitle(title)
+            VStack(spacing: 0) { content() }
+                .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.raised))
         }
     }
 
-    private var modelState: SetupRow.State {
+    private var divider: some View {
+        Rectangle().fill(Theme.separator).frame(height: 1).padding(.leading, 14)
+    }
+
+    private func keys(_ label: String) -> some View {
+        Text(label)
+            .font(Theme.Font.callout.weight(.medium).monospaced())
+            .foregroundStyle(Theme.secondary)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.raisedHover))
+    }
+
+    private var modelState: StatusRow.State {
         if let p = recorder.modelDownload { return .working(p) }
-        if case .failed = recorder.engine, !setup.modelOnDisk { return .needed }
         return setup.modelOnDisk ? .done : .needed
     }
 
@@ -159,16 +242,53 @@ private struct SetupPane: View {
     }
 
     private func relaunch() {
-        let url = Bundle.main.bundleURL
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 }
 
-private struct SetupRow: View {
+// MARK: - Rows
+
+/// A settings row: title (and detail) on the left, a control on the right.
+private struct Row<Trailing: View>: View {
+    let title: String
+    var detail: String? = nil
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Theme.Font.body).foregroundStyle(Theme.text)
+                if let detail {
+                    Text(detail).font(Theme.Font.caption).foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct ToggleRow: View {
+    let title: String
+    var detail: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Row(title: title, detail: detail) {
+            Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Theme.you)
+        }
+    }
+}
+
+/// A setup step: what it's for, and either a check mark or the button that does it.
+private struct StatusRow: View {
     enum State: Equatable { case done, needed, optional, working(Double) }
 
     let symbol: String
@@ -181,186 +301,44 @@ private struct SetupRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
+                .frame(width: 26, height: 26)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.body.weight(.medium))
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Theme.Font.body).foregroundStyle(Theme.text)
+                Text(detail).font(Theme.Font.caption).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                 if case .working(let p) = state {
-                    ProgressView(value: p).progressViewStyle(.linear).padding(.top, 2)
+                    ProgressView(value: p).progressViewStyle(.linear).tint(Theme.you).padding(.top, 3)
                 }
             }
             Spacer(minLength: 8)
             switch state {
             case .done:
-                Label("Done", systemImage: "checkmark.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .font(.title3)
-                    .foregroundStyle(Color(nsColor: .systemGreen))
-                    .help("Done")
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 17)).foregroundStyle(Theme.success)
             case .working:
                 EmptyView()
             case .needed, .optional:
-                VStack(alignment: .trailing, spacing: 6) {
-                    Button(actionTitle, action: action)
-                        .buttonStyle(.borderedProminent)
-                        .tint(state == .needed ? .accentColor : .gray)
+                VStack(alignment: .trailing, spacing: 4) {
+                    ThemeButton(title: actionTitle, role: state == .needed ? .primary : .secondary, action: action)
                     if let secondaryTitle, let secondary {
-                        Button(secondaryTitle, action: secondary).buttonStyle(.link).font(.caption)
+                        Button(secondaryTitle, action: secondary).buttonStyle(.plain)
+                            .font(Theme.Font.caption).foregroundStyle(Theme.you)
                     }
                 }
             }
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private var tint: Color {
         switch state {
-        case .done: return Color(nsColor: .systemGreen)
-        case .needed, .working: return Color.accentColor
-        case .optional: return Color(nsColor: .systemGray)
+        case .done: return Theme.success
+        case .needed, .working: return Theme.you
+        case .optional: return Color.white.opacity(0.18)
         }
-    }
-}
-
-// MARK: - General
-
-private struct GeneralPane: View {
-    @ObservedObject var prefs: Preferences
-    @ObservedObject var recorder: Recorder
-
-    var body: some View {
-        Form {
-            Section("Where Hoot lives") {
-                Toggle("Show Hoot in the notch (Dynamic Island)", isOn: $prefs.useNotch)
-                    .disabled(!prefs.hasNotch)
-                Text(prefs.hasNotch
-                     ? "Hoot wraps around the camera notch and opens when you point at it. Turn this off for a floating bubble you can drag anywhere."
-                     : "This display has no notch, so Hoot floats as a bubble you can drag anywhere.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Toggle("Open Hoot at login", isOn: Binding(
-                    get: { prefs.launchAtLogin },
-                    set: { LaunchAtLogin.set($0); prefs.launchAtLogin = LaunchAtLogin.isOn }))
-            }
-            Section("Transcription") {
-                Picker("Language", selection: $recorder.language) {
-                    Text("Automatic").tag("auto")
-                    Divider()
-                    Text("English").tag("en")
-                    Text("Hindi").tag("hi")
-                    Text("Gujarati").tag("gu")
-                    Text("Spanish").tag("es")
-                    Text("French").tag("fr")
-                    Text("German").tag("de")
-                }
-                Toggle("I'm not wearing headphones (filter echo)", isOn: $recorder.echoCancellation)
-                Toggle("Keep separate audio tracks for each side", isOn: $recorder.keepTracks)
-                Text("Hoot always keeps one mixed recording (conversation.m4a). Separate tracks take about 4× more space.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Section("Notes") {
-                LabeledContent("Saved to") {
-                    HStack {
-                        Text("Documents › Meeting Notes").foregroundStyle(.secondary)
-                        Button("Show in Finder") {
-                            try? FileManager.default.createDirectory(at: Recorder.notesRoot, withIntermediateDirectories: true)
-                            NSWorkspace.shared.open(Recorder.notesRoot)
-                        }
-                    }
-                }
-            }
-            Section("Keyboard shortcuts (work in any app)") {
-                LabeledContent("Start or stop recording", value: HotKeys.record.label)
-                LabeledContent("Transcript", value: HotKeys.transcript.label)
-                LabeledContent("Speaker notes", value: HotKeys.notes.label)
-                LabeledContent("AI Assist", value: HotKeys.assist.label)
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-// MARK: - AI
-
-private struct AIPane: View {
-    @ObservedObject var assist: AIAssist
-    @ObservedObject var setup: SetupStatus
-
-    var body: some View {
-        Form {
-            Section("Bring in answers from your AI apps") {
-                Toggle("Read answers from Claude, ChatGPT and Gemini", isOn: $assist.autoRead)
-                if assist.autoRead && !setup.accessibility {
-                    HStack {
-                        Text("Needs Accessibility permission.").foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Allow…") { assist.requestAccessibility() }
-                    }
-                }
-                Toggle("Show answers I copy", isOn: $assist.catchClipboard)
-                Toggle("Show anything I copy, from any app", isOn: $assist.catchAllCopies)
-                    .disabled(!assist.catchClipboard)
-                Text("Copying works from your iPhone and iPad too, through Universal Clipboard.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Section("Other devices") {
-                Toggle("Receive answers over Wi-Fi from Android or Windows", isOn: $assist.receiveFromDevices)
-                Text("Opens a private page on your network, protected by a secret link. Turn it off when you don't need it.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            Section("Apple Intelligence") {
-                LabeledContent("Meeting summaries & Ask", value: setup.intelligence == nil ? "On this Mac" : "Unavailable")
-                if let reason = setup.intelligence {
-                    Text(reason).font(.callout).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-// MARK: - About
-
-private struct AboutPane: View {
-    @ObservedObject var updates: UpdateChecker
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Spacer(minLength: 10)
-            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 96, height: 96)
-            VStack(spacing: 4) {
-                Text("Hoot").font(.title.weight(.semibold))
-                Text("Version \(UpdateChecker.currentVersion) (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
-                    .font(.callout).foregroundStyle(.secondary)
-                Text("Private meeting notes for your Mac — transcribed on-device.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 10) {
-                if let update = updates.available {
-                    Button("Download Hoot \(update.version)") { NSWorkspace.shared.open(update.download ?? update.page) }
-                        .buttonStyle(.borderedProminent)
-                } else {
-                    Button(updates.checking ? "Checking…" : "Check for Updates") { Task { await updates.check() } }
-                        .disabled(updates.checking)
-                }
-                Button("Website") { NSWorkspace.shared.open(UpdateChecker.website) }
-                Button("GitHub") { NSWorkspace.shared.open(UpdateChecker.repositoryPage) }
-            }
-            if let result = updates.lastResult {
-                Text(result).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Third-Party Notices") {
-                if let url = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md") { NSWorkspace.shared.open(url) }
-            }
-            .buttonStyle(.link)
-            .font(.caption)
-            .padding(.bottom, 12)
-        }
-        .frame(maxWidth: .infinity)
     }
 }

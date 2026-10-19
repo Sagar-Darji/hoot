@@ -8,9 +8,9 @@ final class AssistUIState: ObservableObject {
     @Published var question = ""
 }
 
-/// The AI tab: answers from your AI apps (read automatically, copied, or sent from a phone),
-/// plus an Ask bar that puts questions about the meeting to Apple Intelligence on this Mac.
-struct AssistView: View {
+/// The AI tab: answers from your AI apps (read automatically, copied, or sent from a phone), and an
+/// Ask bar that puts questions about the meeting to Apple Intelligence on this Mac.
+struct AssistPane: View {
     @ObservedObject var assist: AIAssist
     @ObservedObject var recorder: Recorder
     let notes: SpeakerNotes
@@ -18,7 +18,8 @@ struct AssistView: View {
     @StateObject private var ui = AssistUIState()
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
+            header
             if assist.autoRead && !assist.axTrusted && !ui.showingDrop { permissionBanner }
             Group {
                 if ui.showingDrop {
@@ -26,42 +27,49 @@ struct AssistView: View {
                 } else if let entry = assist.current {
                     answer(entry)
                 } else {
-                    ContentUnavailableView {
-                        Label("Ask or Bring In an Answer", systemImage: "sparkles")
-                    } description: {
-                        Text("Ask about this meeting below, or ask Claude, ChatGPT or Gemini as usual — their answers appear here. Copying an answer on your iPhone works too.")
-                    }
+                    ThemeEmpty(symbol: "sparkles", title: "Ask, or bring in an answer",
+                               message: "Ask about this meeting below — or ask Claude, ChatGPT or Gemini as usual and their answers appear here. Copying an answer on your iPhone works too.")
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             if !ui.showingDrop { askBar }
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if assist.entries.count > 1 && !ui.showingDrop {
-                    ControlGroup {
-                        Button { assist.show(assist.index - 1) } label: { Label("Older", systemImage: "chevron.left") }
-                            .disabled(assist.index == 0)
-                        Button { assist.show(assist.index + 1) } label: { Label("Newer", systemImage: "chevron.right") }
-                            .disabled(assist.index >= assist.entries.count - 1)
-                    }
-                    .help("Answer \(assist.index + 1) of \(assist.entries.count)")
-                }
-                if let entry = assist.current, !ui.showingDrop, !entry.text.isEmpty {
-                    Button {
-                        assist.copy(entry.text)
-                        ui.copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { ui.copied = false }
-                    } label: { Label("Copy", systemImage: ui.copied ? "checkmark" : "doc.on.doc") }
-                        .help("Copy this answer")
-                }
-                settingsMenu
-            }
         }
         .onAppear { assist.hasUnseen = false }
     }
 
-    private var settingsMenu: some View {
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            if let entry = assist.current, !ui.showingDrop {
+                sourceChip(entry)
+                (Text(entry.time, style: .relative) + Text(" ago"))
+                    .font(Theme.Font.caption).foregroundStyle(Theme.tertiary)
+            } else {
+                Text(ui.showingDrop ? "Send from another device" : "AI Assist")
+                    .font(Theme.Font.headline).foregroundStyle(Theme.text)
+            }
+            Spacer()
+            if assist.entries.count > 1 && !ui.showingDrop {
+                ThemeIconButton(symbol: "chevron.left", help: "Older answer", size: 26) { assist.show(assist.index - 1) }
+                    .disabled(assist.index == 0)
+                Text("\(assist.index + 1)/\(assist.entries.count)")
+                    .font(Theme.Font.caption.monospacedDigit()).foregroundStyle(Theme.tertiary)
+                ThemeIconButton(symbol: "chevron.right", help: "Newer answer", size: 26) { assist.show(assist.index + 1) }
+                    .disabled(assist.index >= assist.entries.count - 1)
+            }
+            if let entry = assist.current, !ui.showingDrop, !entry.text.isEmpty {
+                ThemeIconButton(symbol: ui.copied ? "checkmark" : "doc.on.doc", help: "Copy this answer") {
+                    assist.copy(entry.text)
+                    ui.copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { ui.copied = false }
+                }
+            }
+            options
+        }
+    }
+
+    private var options: some View {
         Menu {
             Toggle("Read Answers from Claude, ChatGPT & Gemini", isOn: $assist.autoRead)
             Toggle("Show Answers I Copy", isOn: $assist.catchClipboard)
@@ -72,17 +80,28 @@ struct AssistView: View {
             Divider()
             Button("Bigger Text") { assist.fontSize = min(36, assist.fontSize + 2) }
             Button("Smaller Text") { assist.fontSize = max(10, assist.fontSize - 2) }
-            Picker("Window Opacity", selection: $assist.opacity) {
-                Text("100%").tag(1.0)
-                Text("75%").tag(0.75)
-                Text("50%").tag(0.5)
-            }
             Divider()
             Button("Clear All Answers", role: .destructive) { assist.clear() }.disabled(assist.entries.isEmpty)
         } label: {
-            Label("Options", systemImage: "ellipsis.circle")
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: Theme.control, height: Theme.control)
+                .background(Circle().fill(Theme.raised))
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help("Options")
+    }
+
+    private func sourceChip(_ entry: AIEntry) -> some View {
+        Label(entry.source, systemImage: Self.symbol(for: entry.source))
+            .font(Theme.Font.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Capsule().fill(Self.color(for: entry.source)))
     }
 
     // MARK: Ask bar
@@ -91,52 +110,46 @@ struct AssistView: View {
         VStack(spacing: 8) {
             if let error = assist.askError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(Theme.Font.caption).foregroundStyle(Theme.warning)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(MeetingAI.quickPrompts, id: \.label) { quick in
-                        Button { send(quick.prompt, label: quick.label) } label: {
-                            Label(quick.label, systemImage: quick.symbol)
-                                .font(.callout)
-                                .padding(.horizontal, 10).padding(.vertical, 5)
-                        }
-                        .buttonStyle(.plain)
-                        .glass(in: Capsule(), interactive: true)
-                        .disabled(assist.asking)
+                        ThemeButton(title: quick.label, symbol: quick.symbol) { send(quick.prompt) }
+                            .disabled(assist.asking)
                     }
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
             }
             HStack(spacing: 8) {
-                TextField("Ask about this meeting…", text: $ui.question)
+                TextField("", text: $ui.question, prompt: Text("Ask about this meeting…").foregroundStyle(Theme.tertiary))
                     .textFieldStyle(.plain)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.text)
                     .onSubmit { send(ui.question) }
-                    .padding(.leading, 12)
+                    .padding(.leading, 14)
                 if assist.asking {
-                    ProgressView().controlSize(.small).padding(.trailing, 6)
+                    ProgressView().controlSize(.small).padding(.trailing, 8)
                 } else {
                     Button { send(ui.question) } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 22))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, ui.question.isEmpty ? Color.secondary : Color.accentColor)
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(ui.question.isEmpty ? Theme.tertiary : .white)
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(ui.question.isEmpty ? Theme.raised : Theme.you))
                     }
                     .buttonStyle(.plain)
                     .disabled(ui.question.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .padding(.trailing, 4)
                     .help("Ask Apple Intelligence (on this Mac)")
                 }
             }
             .frame(height: 34)
-            .glass(in: Capsule())
+            .background(Capsule().fill(Theme.raised))
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
-        .padding(.top, 6)
     }
 
-    private func send(_ question: String, label: String? = nil) {
+    private func send(_ question: String) {
         guard !question.trimmingCharacters(in: .whitespaces).isEmpty, !assist.asking else { return }
         assist.ask(question, transcript: recorder.lines, notes: notes.text)
         ui.question = ""
@@ -146,52 +159,42 @@ struct AssistView: View {
 
     private var permissionBanner: some View {
         HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill").foregroundStyle(.orange).font(.title3)
+            Image(systemName: "hand.raised.fill").foregroundStyle(Theme.warning)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Allow Hoot to read your AI apps").font(.callout.weight(.semibold))
-                Text("New answers then appear automatically.").font(.caption).foregroundStyle(.secondary)
+                Text("Let Hoot read your AI apps").font(Theme.Font.headline).foregroundStyle(Theme.text)
+                Text("New answers then appear here by themselves.").font(Theme.Font.caption).foregroundStyle(Theme.secondary)
             }
             Spacer(minLength: 4)
-            Button("Allow…") { assist.requestAccessibility() }
-                .controlSize(.small)
+            ThemeButton(title: "Allow…") { assist.requestAccessibility() }
         }
-        .padding(10)
-        .background(.orange.opacity(0.08))
+        .themeCard(padding: 12)
     }
 
     private func answer(_ entry: AIEntry) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Label(entry.source, systemImage: Self.symbol(for: entry.source))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Self.color(for: entry.source)))
-                    (Text(entry.time, style: .relative) + Text(" ago"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 if let question = entry.question {
                     Text(question)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(Theme.secondary)
                         .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quaternary))
+                        .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.raisedHover))
                 }
                 if entry.text.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Thinking on this Mac…").foregroundStyle(.secondary)
+                        Text("Thinking on this Mac…").font(Theme.Font.body).foregroundStyle(Theme.secondary)
                     }
                 } else {
                     MarkdownText(source: entry.text, fontSize: assist.fontSize)
                         .font(.system(size: assist.fontSize))
+                        .foregroundStyle(Theme.text)
                         .lineSpacing(2)
                 }
             }
-            .padding(16)
+            .themeCard(padding: 16)
         }
+        .scrollIndicators(.never)
     }
 
     private var dropView: some View {
@@ -200,32 +203,26 @@ struct AssistView: View {
                 if let qr = Self.qrCode(url) {
                     Image(nsImage: qr).interpolation(.none).resizable().frame(width: 140, height: 140)
                         .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white))
+                        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(.white))
                 }
                 Text("Scan with your phone's camera on the same Wi-Fi, paste an answer, then tap Send.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(Theme.Font.callout).foregroundStyle(Theme.secondary)
                     .multilineTextAlignment(.center)
-                Text(url).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                Button("Stop Receiving") { assist.receiveFromDevices = false }
+                Text(url).font(Theme.Font.caption.monospaced()).foregroundStyle(Theme.tertiary).textSelection(.enabled)
+                ThemeButton(title: "Stop Receiving") { assist.receiveFromDevices = false }
             } else if assist.receiveFromDevices {
-                ContentUnavailableView("No Wi-Fi", systemImage: "wifi.slash",
-                                       description: Text("Connect this Mac to Wi-Fi to receive answers from other devices."))
+                ThemeEmpty(symbol: "wifi.slash", title: "No Wi-Fi", message: "Connect this Mac to Wi-Fi to receive answers from other devices.")
             } else {
-                ContentUnavailableView {
-                    Label("Send from Another Device", systemImage: "iphone.and.arrow.forward")
-                } description: {
-                    Text("iPhone, iPad and your other Macs already work — just copy the answer. For Android or Windows, Hoot opens a private page on your Wi-Fi.")
-                } actions: {
-                    Button("Start Receiving") { assist.receiveFromDevices = true }
-                        .buttonStyle(.borderedProminent)
-                }
+                ThemeEmpty(symbol: "iphone.and.arrow.forward", title: "Send from another device",
+                           message: "iPhone, iPad and your other Macs already work — just copy the answer. For Android or Windows, Hoot opens a private page on your Wi-Fi.")
+                    .frame(maxHeight: 180)
+                ThemeButton(title: "Start Receiving", role: .primary) { assist.receiveFromDevices = true }
             }
             if let error = assist.dropError {
-                Text(error).font(.caption).foregroundStyle(.orange)
+                Text(error).font(Theme.Font.caption).foregroundStyle(Theme.warning)
             }
-            Button("Back to Answers") { ui.showingDrop = false }.buttonStyle(.link)
+            ThemeButton(title: "Back to Answers") { ui.showingDrop = false }
         }
-        .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -238,7 +235,7 @@ struct AssistView: View {
         case "ChatGPT": return Color(red: 0.06, green: 0.6, blue: 0.48)
         case "Gemini": return Color(red: 0.26, green: 0.52, blue: 0.96)
         case "Apple Intelligence": return Color(red: 0.55, green: 0.35, blue: 0.95)
-        default: return Color(nsColor: .systemGray)
+        default: return Color.white.opacity(0.18)
         }
     }
 

@@ -36,7 +36,7 @@ struct TeleprompterView: View {
                 Text(text.isEmpty ? "Nothing to read yet — write your notes or link a doc first." : text)
                     .font(.system(size: fontSize * 1.25, weight: .medium))
                     .lineSpacing(fontSize * 0.45)
-                    .foregroundStyle(text.isEmpty ? .tertiary : .primary)
+                    .foregroundStyle(text.isEmpty ? Theme.tertiary : Theme.text)
                     .frame(width: geo.size.width - 40, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .background(GeometryReader { g in Color.clear.onAppear { measured.height = g.size.height }
@@ -49,7 +49,7 @@ struct TeleprompterView: View {
             .clipped()
             // A reading line at eye level.
             .overlay(alignment: .top) {
-                Rectangle().fill(Color.accentColor.opacity(0.35)).frame(height: 2)
+                Rectangle().fill(Theme.you.opacity(0.45)).frame(height: 2)
                     .padding(.top, geo.size.height * 0.35 - 6)
             }
             .overlay(alignment: .bottom) {
@@ -57,7 +57,7 @@ struct TeleprompterView: View {
                     Label("Paused while hovering", systemImage: "pause.fill")
                         .font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.vertical, 5)
-                        .glass(in: Capsule())
+                        .background(Capsule().fill(Theme.raisedHover))
                         .padding(10)
                 }
             }

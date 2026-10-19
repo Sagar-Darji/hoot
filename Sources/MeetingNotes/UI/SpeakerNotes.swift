@@ -11,9 +11,6 @@ final class SpeakerNotes: ObservableObject {
     @Published var fontSize: CGFloat = CGFloat(UserDefaults.standard.object(forKey: "notesFontSize") as? Double ?? 16) {
         didSet { UserDefaults.standard.set(Double(fontSize), forKey: "notesFontSize") }
     }
-    @Published var opacity: Double = UserDefaults.standard.object(forKey: "notesOpacity") as? Double ?? 1 {
-        didSet { UserDefaults.standard.set(opacity, forKey: "notesOpacity") }
-    }
     @Published var showDoc = UserDefaults.standard.bool(forKey: "notesShowDoc") {
         didSet { UserDefaults.standard.set(showDoc, forKey: "notesShowDoc") }
     }
@@ -59,10 +56,6 @@ final class SpeakerNotes: ObservableObject {
         try? FileManager.default.createDirectory(at: Recorder.notesRoot, withIntermediateDirectories: true)
         try? text.write(to: Self.fileURL, atomically: true, encoding: .utf8)
     }
-
-    func cycleOpacity() {
-        opacity = opacity > 0.9 ? 0.75 : opacity > 0.6 ? 0.5 : 1
-    }
 }
 
 final class NotesUIState: ObservableObject {
@@ -70,7 +63,9 @@ final class NotesUIState: ObservableObject {
     @Published var editingLink = false
 }
 
-struct SpeakerNotesView: View {
+/// Your cue card beside the call: your own notes, or a linked document that stays up to date, and a
+/// teleprompter that scrolls either one while you present.
+struct NotesPane: View {
     @ObservedObject var notes: SpeakerNotes
     @ObservedObject var doc: LinkedDoc
 
@@ -83,104 +78,105 @@ struct SpeakerNotesView: View {
     }
 
     var body: some View {
-        Group {
-            if prompter.playing {
-                TeleprompterView(text: notes.showDoc ? doc.text : notes.text, fontSize: notes.fontSize, state: prompter)
-            } else if notes.showDoc { docPane } else { notesPane }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !prompter.playing {
-                HStack {
-                    PillSegments(selection: Binding(
-                        get: { notes.showDoc },
-                        set: { show in
-                            notes.showDoc = show
-                            if show, !doc.link.isEmpty { Task { await doc.refresh() } }
-                        }), items: [
-                            (false, "My Notes", "pencil"),
-                            (true, String((doc.title ?? "Linked Doc").prefix(24)), "link"),
-                        ])
-                    Spacer()
-                    if notes.showDoc && !doc.link.isEmpty {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                if prompter.playing {
+                    Label("Teleprompter", systemImage: "play.fill")
+                        .font(Theme.Font.headline).foregroundStyle(Theme.text)
+                } else {
+                    ThemeSegmented(selection: Binding(get: { notes.showDoc }, set: { show in
+                        notes.showDoc = show
+                        if show, !doc.link.isEmpty { Task { await doc.refresh() } }
+                    }), items: [(false, "My Notes", nil), (true, String((doc.title ?? "Linked Doc").prefix(22)), nil)])
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    if prompter.playing { prompter.playing = false } else { prompter.restart(); prompter.playing = true }
-                } label: {
-                    Label(prompter.playing ? "Stop Teleprompter" : "Teleprompter",
-                          systemImage: prompter.playing ? "stop.fill" : "play.fill")
-                }
-                .help(prompter.playing ? "Back to editing" : "Scroll the text automatically while you present")
+                Spacer()
                 if notes.showDoc, !doc.link.isEmpty, !prompter.playing {
-                    Button { Task { await doc.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                        .help("Get the latest text now (also happens every 30 seconds)")
-                        .disabled(doc.loading)
+                    Text(docStatus).font(Theme.Font.caption).foregroundStyle(doc.justChanged ? Theme.you : Theme.tertiary)
+                    ThemeIconButton(symbol: "arrow.clockwise", help: "Get the latest text now (also every 30 seconds)") {
+                        Task { await doc.refresh() }
+                    }
                 }
-                Menu {
-                    if notes.showDoc, !doc.link.isEmpty {
-                        Button("Open in Browser") { doc.openInBrowser() }
-                        Button("Change Link…") {
-                            ui.linkDraft = doc.link
-                            ui.editingLink = true
-                        }
-                        Button("Unlink Document", role: .destructive) { doc.unlink() }
-                        Divider()
-                    }
-                    Picker("Teleprompter Speed", selection: $prompter.speed) {
-                        Text("Slow").tag(16.0)
-                        Text("Medium").tag(28.0)
-                        Text("Fast").tag(44.0)
-                    }
-                    Divider()
-                    Button("Bigger Text") { notes.fontSize = min(40, notes.fontSize + 2) }
-                    Button("Smaller Text") { notes.fontSize = max(11, notes.fontSize - 2) }
-                    Divider()
-                    Picker("Window Opacity", selection: $notes.opacity) {
-                        Text("100%").tag(1.0)
-                        Text("75%").tag(0.75)
-                        Text("50%").tag(0.5)
-                    }
-                } label: {
-                    Label("Options", systemImage: "textformat.size")
+                ThemeIconButton(symbol: prompter.playing ? "stop.fill" : "play.fill",
+                                help: prompter.playing ? "Back to editing" : "Teleprompter: scroll the text while you present") {
+                    if prompter.playing { prompter.playing = false } else { prompter.restart(); prompter.playing = true }
                 }
-                .help("Text size and opacity")
+                options
             }
+            Group {
+                if prompter.playing {
+                    TeleprompterView(text: notes.showDoc ? doc.text : notes.text, fontSize: notes.fontSize, state: prompter)
+                        .background(Theme.raised)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+                } else if notes.showDoc {
+                    docPane
+                } else {
+                    editor
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var subtitle: String {
-        guard notes.showDoc, !doc.link.isEmpty else { return "Hidden from screen sharing" }
-        if doc.loading { return "Checking for changes…" }
+    private var docStatus: String {
+        if doc.loading { return "Checking…" }
         if doc.justChanged { return "Just updated" }
-        if let title = doc.title { return title }
-        return "Hidden from screen sharing"
+        return "Live"
+    }
+
+    private var options: some View {
+        Menu {
+            if notes.showDoc, !doc.link.isEmpty {
+                Button("Open in Browser") { doc.openInBrowser() }
+                Button("Change Link…") {
+                    ui.linkDraft = doc.link
+                    ui.editingLink = true
+                }
+                Button("Unlink Document", role: .destructive) { doc.unlink() }
+                Divider()
+            }
+            Picker("Teleprompter Speed", selection: $prompter.speed) {
+                Text("Slow").tag(16.0)
+                Text("Medium").tag(28.0)
+                Text("Fast").tag(44.0)
+            }
+            Divider()
+            Button("Bigger Text") { notes.fontSize = min(40, notes.fontSize + 2) }
+            Button("Smaller Text") { notes.fontSize = max(11, notes.fontSize - 2) }
+        } label: {
+            Image(systemName: "textformat.size")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: Theme.control, height: Theme.control)
+                .background(Circle().fill(Theme.raised))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Text size and teleprompter speed")
     }
 
     // MARK: My notes
 
-    private var notesPane: some View {
+    private var editor: some View {
         TextEditor(text: $notes.text)
             .font(.system(size: notes.fontSize))
+            .foregroundStyle(Theme.text)
             .lineSpacing(3)
             .scrollContentBackground(.hidden)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            .scrollIndicators(.never)
+            .padding(10)
             .overlay(alignment: .topLeading) {
                 if notes.text.isEmpty {
                     Text("Talking points, numbers to mention, questions to ask…")
                         .font(.system(size: notes.fontSize))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 17)
+                        .foregroundStyle(Theme.tertiary)
+                        .padding(.horizontal, 15)
+                        .padding(.top, 10)
                         .allowsHitTesting(false)
                 }
             }
+            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.raised))
     }
 
     // MARK: Linked doc
@@ -189,70 +185,63 @@ struct SpeakerNotesView: View {
         if doc.link.isEmpty || ui.editingLink {
             linkForm
         } else if doc.text.isEmpty {
-            ContentUnavailableView {
-                Label(doc.error == nil ? (doc.loading ? "Loading…" : "Empty Document") : "Can't Load Document",
-                      systemImage: doc.error == nil ? "doc" : "exclamationmark.triangle")
-            } description: {
-                Text(doc.error ?? (doc.loading ? "" : "Add text to the document and it appears here within 30 seconds."))
-            } actions: {
-                Button("Open in Browser") { doc.openInBrowser() }
+            VStack(spacing: 14) {
+                ThemeEmpty(symbol: doc.error == nil ? "doc" : "exclamationmark.triangle",
+                           title: doc.error == nil ? (doc.loading ? "Loading…" : "The document is empty") : "Can't load the document",
+                           message: doc.error ?? (doc.loading ? "" : "Add text to it and it appears here within 30 seconds."))
+                    .frame(maxHeight: 170)
+                ThemeButton(title: "Open in Browser") { doc.openInBrowser() }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(spacing: 0) {
+            VStack(spacing: 8) {
                 if let error = doc.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(Theme.warning)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.orange.opacity(0.1))
                 }
                 ScrollView {
                     Text(doc.text)
                         .font(.system(size: notes.fontSize))
+                        .foregroundStyle(Theme.text)
                         .lineSpacing(3)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(14)
                 }
-                    .overlay(alignment: .bottomTrailing) {
-                    if let updated = doc.updated {
-                        (Text("Updated ") + Text(updated, style: .relative) + Text(" ago"))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .glass(in: Capsule())
-                            .padding(10)
-                    }
-                }
+                .scrollIndicators(.never)
+                .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.raised))
             }
         }
     }
 
     private var linkForm: some View {
-        Form {
-            Section {
-                TextField("Link", text: $ui.linkDraft, prompt: Text("https://docs.google.com/document/d/…"))
-                    .onSubmit(submitLink)
-            } header: {
-                Text("Show a Document")
-            } footer: {
-                Text("Google Docs, Slides or Sheets shared as “Anyone with the link”, a GitHub or Gist file, any web page, or a file on this Mac. Hoot keeps it up to date while it's open.")
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Show a document").font(Theme.Font.title).foregroundStyle(Theme.text)
+            Text("Paste a link to your script or talking points — Google Docs, Slides or Sheets shared as “Anyone with the link”, a GitHub or Gist file, any web page, or a file on this Mac. Hoot keeps it up to date.")
+                .font(Theme.Font.callout).foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("", text: $ui.linkDraft, prompt: Text("https://docs.google.com/document/d/…").foregroundStyle(Theme.tertiary))
+                .textFieldStyle(.plain)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous).fill(Theme.raised))
+                .onSubmit(submitLink)
             if let error = doc.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Label(error, systemImage: "exclamationmark.triangle.fill").font(Theme.Font.callout).foregroundStyle(Theme.warning)
             }
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
-                if ui.editingLink { Button("Cancel") { ui.editingLink = false } }
-                Button("Show Document", action: submitLink)
-                    .keyboardShortcut(.defaultAction)
+                if ui.editingLink { ThemeButton(title: "Cancel") { ui.editingLink = false } }
+                ThemeButton(title: "Show Document", role: .primary, action: submitLink)
                     .disabled(ui.linkDraft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .formStyle(.grouped)
+        .themeCard(padding: 16)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private func submitLink() {

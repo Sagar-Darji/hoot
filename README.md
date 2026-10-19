@@ -32,7 +32,7 @@
 - **Speaker notes** — a cue card beside the call, a linked doc (Google Docs/Slides/Sheets, GitHub, any page) that stays up to date, and a teleprompter.
 - **AI Assist** — answers from Claude, ChatGPT and Gemini appear beside the call (read automatically, copied, or sent from your phone), and you can *Ask about this meeting*.
 - **Invisible when sharing** — Hoot's windows are excluded from screen sharing and recordings.
-- **Light** — about 120 MB at rest with no CPU use; the speech engine loads only during meetings and is released a few minutes after.
+- **Light** — under 100 MB at rest with no CPU use; the speech engine loads only during meetings and is released a few minutes after.
 
 | Transcript | Speaker notes | AI Assist |
 | --- | --- | --- |

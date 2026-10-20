@@ -97,7 +97,7 @@
 
   /* MacBook top edge with the notch and the island on it */
   .screen {
-    position: relative; margin: 56px auto 0; max-width: 980px; aspect-ratio: 16 / 7.2;
+    position: relative; margin: 56px auto 0; max-width: 980px; aspect-ratio: 16 / 8.2;
     border-radius: 22px 22px 0 0; overflow: hidden;
     background:
       radial-gradient(1200px 500px at 20% 0%, rgba(255,255,255,.22), transparent 60%),
@@ -111,10 +111,7 @@
     width: 56%; filter: drop-shadow(0 18px 30px rgba(0,0,0,.35));
   }
   .island img { width: 100%; }
-  .float-card {
-    position: absolute; right: 4%; bottom: -6%; width: 30%;
-    border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,.35);
-  }
+  .island.panel { width: 44%; filter: none; }   /* the open island brings its own shadow */
 
   /* Sections */
   section { padding: 96px 0; }
@@ -135,7 +132,14 @@
 
   .shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
   .shot figure { margin: 0; }
-  .shot img { border-radius: 14px; box-shadow: var(--shadow); }
+  /* Each panel hangs from the top of a little screen, as it does from the notch. */
+  .shot .wall {
+    border-radius: 18px; overflow: hidden; padding: 0 5%;
+    background:
+      radial-gradient(600px 300px at 20% 0%, rgba(255,255,255,.2), transparent 60%),
+      linear-gradient(135deg, var(--hero-a), var(--hero-b) 55%, var(--hero-c));
+    box-shadow: var(--shadow);
+  }
   .shot figcaption { margin-top: 14px; text-align: center; color: var(--muted); font-size: 15px; }
   .shot figcaption strong { color: var(--ink); display: block; font-size: 16px; }
 
@@ -176,15 +180,15 @@
     .grid, .shots { grid-template-columns: 1fr 1fr; }
     .steps { grid-template-columns: 1fr 1fr; }
     .privacy { grid-template-columns: 1fr; }
-    .float-card { display: none; }
     .island { width: 86%; }
+    .island.panel { width: 70%; }
   }
   @media (max-width: 560px) {
     nav .links { display: none; }
     .grid, .shots, .steps { grid-template-columns: 1fr; }
     section { padding: 64px 0; }
-    .screen { aspect-ratio: 4 / 3; border-width: 6px; }
-    .island { width: 100%; }
+    .screen { aspect-ratio: 1 / 1; border-width: 6px; }
+    .island, .island.panel { width: 100%; }
   }
 </style>
 </head>
@@ -218,10 +222,9 @@
     <div class="req">Free &amp; open source · Apple Silicon · macOS 26 or later</div>
   </div>
   <div class="wrap">
-    <div class="screen" role="img" aria-label="A MacBook screen with Hoot open around the notch, showing a live transcript line, a Stop button and quick actions">
+    <div class="screen" role="img" aria-label="A MacBook screen with Hoot's island open from the notch during a call: a running timer, a Stop button and the live transcript">
       <div class="menubar"></div>
-      <div class="island"><img src="assets/island-open-live.png" alt=""></div>
-      <div class="float-card"><img src="assets/panel-transcript.png" alt=""></div>
+      <div class="island panel"><img src="assets/hero.png" alt=""></div>
     </div>
   </div>
 </header>
@@ -234,7 +237,7 @@
       <div class="card">
         <div class="glyph" style="background:#1d1d1f">◖◗</div>
         <h3>Lives in the notch</h3>
-        <p>A Dynamic Island for your MacBook: a timer and live voice bars while recording, a drop-down with Record, Transcript, Notes and AI when you point at it.</p>
+        <p>A Dynamic Island for your MacBook: a timer and live voice bars while recording, Record and quick links when you point at it — and everything opens right there.</p>
       </div>
       <div class="card">
         <div class="glyph" style="background:linear-gradient(135deg,var(--you),var(--them))">◉</div>
@@ -267,12 +270,12 @@
 
 <section class="alt">
   <div class="wrap">
-    <h2>One window. Three superpowers.</h2>
-    <p class="sub">Transcript, notes and AI live together in a single Liquid Glass window that floats over your call.</p>
+    <h2>One island. Three superpowers.</h2>
+    <p class="sub">Transcript, notes and AI open inside the island at the top of your screen — no windows to juggle, and none of it shows up when you share your screen.</p>
     <div class="shots">
-      <div class="shot"><figure><img src="assets/panel-transcript.png" alt="Hoot's transcript, laid out like Messages"><figcaption><strong>Transcript</strong>Laid out like Messages — you on the right, everyone else on the left.</figcaption></figure></div>
-      <div class="shot"><figure><img src="assets/panel-notes.png" alt="Hoot's speaker notes"><figcaption><strong>Speaker notes</strong>Your cue card, a linked doc, and a teleprompter.</figcaption></figure></div>
-      <div class="shot"><figure><img src="assets/panel-ai.png" alt="Hoot's AI Assist tab"><figcaption><strong>AI Assist</strong>Answers from your AI apps, and Ask about the meeting.</figcaption></figure></div>
+      <div class="shot"><figure><div class="wall"><img src="assets/panel-transcript.png" alt="Hoot's transcript, laid out like Messages"></div><figcaption><strong>Transcript</strong>Laid out like Messages — you on the right, everyone else on the left.</figcaption></figure></div>
+      <div class="shot"><figure><div class="wall"><img src="assets/panel-notes.png" alt="Hoot's speaker notes"></div><figcaption><strong>Speaker notes</strong>Your cue card, a linked doc, and a teleprompter.</figcaption></figure></div>
+      <div class="shot"><figure><div class="wall"><img src="assets/panel-ai.png" alt="Hoot's AI Assist tab"></div><figcaption><strong>AI Assist</strong>Answers from your AI apps, and Ask about the meeting.</figcaption></figure></div>
     </div>
   </div>
 </section>
@@ -301,7 +304,7 @@
     <h2>Up and running in a minute.</h2>
     <p class="sub">Needs a Mac with Apple Silicon (M1 or newer) and macOS 26 or later.</p>
     <div class="steps">
-      <div class="step"><h3>Download</h3><p>Get <a href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">Hoot.dmg</a>, open it and drag Hoot to Applications.</p></div>
+      <div class="step"><h3>Download</h3><p>Get <a href="https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg">Hoot.dmg</a>, open it and drag Hoot onto the Applications folder.</p></div>
       <div class="step"><h3>Open it</h3><p>If macOS says it can't verify Hoot: click Done, then System Settings › Privacy &amp; Security › <em>Open Anyway</em>. Only once.</p></div>
       <div class="step"><h3>Allow two things</h3><p>The Setup checklist asks for the Microphone and System Audio, then downloads the speech model (≈550 MB) once.</p></div>
       <div class="step"><h3>Take notes</h3><p>Point at the notch and hit Record — or press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>R</kbd> in any app.</p></div>
@@ -314,11 +317,11 @@
     <h2>Questions</h2>
     <details><summary>Is Hoot really free?</summary><p>Yes. It's open source under the MIT license. There's no paid tier and no account.</p></details>
     <details><summary>Which call apps does it work with?</summary><p>All of them. Hoot listens to your microphone and your Mac's audio output, so it works with Zoom, Google Meet, Teams, FaceTime, Slack huddles, Discord, WhatsApp — even a YouTube video.</p></details>
-    <details><summary>My Mac has no notch. Can I still use it?</summary><p>Yes — Hoot becomes a small floating Liquid Glass bubble you can drag anywhere. You can also choose the bubble on a MacBook in Settings.</p></details>
+    <details><summary>My Mac has no notch. Can I still use it?</summary><p>Yes — Hoot draws the same island at the top centre of your screen, and it works exactly the same.</p></details>
     <details><summary>Why does macOS warn me the first time?</summary><p>Hoot isn't distributed through the App Store, so macOS asks you to confirm once. Use System Settings › Privacy &amp; Security › Open Anyway. The source is on GitHub if you'd like to build it yourself.</p></details>
     <details><summary>Which languages does it understand?</summary><p>Whisper handles about 100 languages and can detect them automatically. You can also pick one in Settings › General.</p></details>
-    <details><summary>Does it slow my Mac down?</summary><p>At rest Hoot uses under 100 MB of memory and no CPU. The speech engine only loads when a meeting starts and is released a few minutes after it ends.</p></details>
-    <details><summary>How do updates work?</summary><p>Hoot checks GitHub once a day and shows “Update to Hoot X” in its menu when a new version is out.</p></details>
+    <details><summary>Does it slow my Mac down?</summary><p>At rest Hoot uses under 100 MB of memory and no CPU. The speech engine only loads for a meeting and is released a few minutes after it ends (or after a call you didn't record), and Hoot only reads your AI apps during a meeting or while its AI tab is open.</p></details>
+    <details><summary>How do updates work?</summary><p>Hoot checks GitHub once a day and tells you in the island when a new version is out — download it and drag it onto Applications again.</p></details>
   </div>
 </section>
 

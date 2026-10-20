@@ -26,13 +26,13 @@
 
 ## Features
 
-- **Lives in the notch** — a Dynamic Island for your MacBook: timer and live voice bars while recording; point at the notch for Record, Transcript, Notes and AI. Macs without a notch get a floating Liquid Glass bubble.
+- **Lives in the notch** — a Dynamic Island for your MacBook: timer and live voice bars while recording; point at the notch for Record and quick links, and Transcript, Notes, AI and Settings all open right inside the island. Macs without a notch get the same island at the top of the screen.
 - **Both sides, on-device** — your microphone and the call's audio are transcribed separately with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Works with Zoom, Meet, Teams, FaceTime, Slack and anything else that plays sound.
 - **Summary & action items** — when you stop, Apple Intelligence writes the summary, decisions, action items and open questions, on-device.
 - **Speaker notes** — a cue card beside the call, a linked doc (Google Docs/Slides/Sheets, GitHub, any page) that stays up to date, and a teleprompter.
 - **AI Assist** — answers from Claude, ChatGPT and Gemini appear beside the call (read automatically, copied, or sent from your phone), and you can *Ask about this meeting*.
-- **Invisible when sharing** — Hoot's windows are excluded from screen sharing and recordings.
-- **Light** — under 100 MB at rest with no CPU use; the speech engine loads only during meetings and is released a few minutes after.
+- **Invisible when sharing** — Hoot is excluded from screen sharing and recordings.
+- **Light** — under 100 MB at rest with no CPU use; the speech engine loads only during meetings and is released a few minutes after. Animations follow your voice levels instead of a timer, so silence costs nothing.
 
 | Transcript | Speaker notes | AI Assist |
 | --- | --- | --- |
@@ -42,7 +42,7 @@
 
 Needs a Mac with Apple Silicon (M1 or newer) and **macOS 26** or later.
 
-1. Download [**Hoot.dmg**](https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg), open it and drag Hoot to Applications.
+1. Download [**Hoot.dmg**](https://github.com/Sagar-Darji/hoot/releases/latest/download/Hoot.dmg), open it and drag Hoot onto the Applications folder.
 2. Open Hoot. If macOS says it can't verify the app, click **Done**, then go to **System Settings › Privacy & Security** and click **Open Anyway** (once).
 3. Follow the Setup checklist: allow the **Microphone** and **Screen & System Audio Recording**, reopen Hoot, and let it download the speech model (≈550 MB, once).
 4. Press **⌃⌥R** in any app (or click Record in the notch) to take notes.
@@ -56,7 +56,7 @@ Notes are Markdown files in `~/Documents/Meeting Notes/`. Nothing is uploaded an
 | `Audio/` | Captures the mic (`AVAudioEngine`, echo-cancelled) and the call's audio (`ScreenCaptureKit`, audio only) as two 16 kHz tracks, splits each into speech chunks at pauses. |
 | `Transcription/` | Runs a bundled `whisper-server` (whisper.cpp + Metal) on demand; summaries and *Ask* use Apple's on-device Foundation Models. |
 | `Recorder.swift` | Session lifecycle, transcription queue, files, and the speech engine's load/unload. Voice levels live in a separate `LiveMeter` so only the meter redraws while recording. |
-| `UI/` | The notch island and bubble, the one panel (Transcript · Notes · AI), Settings, and the glass crane renderer. |
+| `UI/` | The notch island — Hoot's only window, with Transcript · Notes · AI · Settings inside it — built on one design system (`Theme.swift`); the glass crane renderer; the install window's background. |
 | `Assist/` | AI Assist: reading Claude/ChatGPT/Gemini via Accessibility, the clipboard, and a token-protected Wi-Fi drop page. |
 | `System/` | Global shortcuts, call detection, launch at login, update checks. |
 
@@ -68,7 +68,11 @@ brew install whisper-cpp            # the speech engine that gets bundled into t
 ./build.sh install                  # builds Hoot.app, bundles the engine, installs and opens it
 ```
 
-Useful flags on the built binary (`.build/release/MeetingNotes`): `--transcribe-file <audio>`, `--summarize-demo`, `--fetch-doc <link>`, `--render-icon <png>`.
+Useful flags on the built binary (`.build/release/MeetingNotes`): `--transcribe-file <audio>`, `--summarize-demo`, `--fetch-doc <link>`, `--render-icon <png>`, `--render-island <dir>`, `--render-installer <dir>`.
+
+`HOOT_SHOWCASE=<tab>` opens the island with sample content for screenshots (`live`, `live-transcript`, `notes`, `assist`, `settings`, …); `HOOT_SHOWCASE=bench` steps through every state and prints dropped frames and CPU for each; `HOOT_SLOWMO=10` slows the island's animations down to check them frame by frame.
+
+`./package.sh` makes the disk image with the classic install window (drag Hoot onto Applications). Its background and Finder layout live in `Resources/dmg`.
 
 ## Releasing an update
 

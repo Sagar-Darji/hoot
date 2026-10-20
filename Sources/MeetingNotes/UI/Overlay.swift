@@ -68,12 +68,21 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     static func pinned(_ rootView: Content, canvas: CGSize, in size: CGSize) -> NSView {
         let host = IslandHostingView(rootView: rootView)
         host.sizingOptions = []
-        host.frame = NSRect(x: (size.width - canvas.width) / 2, y: size.height - canvas.height,
-                            width: canvas.width, height: canvas.height)
-        host.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
-        container.addSubview(host)
-        return container
+        host.frame.size = canvas
+        let viewport = Viewport(frame: NSRect(origin: .zero, size: size))
+        viewport.addSubview(host)
+        viewport.resizeSubviews(withOldSize: size)
+        return viewport
+    }
+}
+
+/// Keeps the island's canvas centred under the top edge as the window resizes. Autoresizing can't: once
+/// the canvas is wider than the window it pins it to the left edge, which cut the island off on the right.
+private final class Viewport: NSView {
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        for view in subviews {
+            view.setFrameOrigin(NSPoint(x: (bounds.width - view.frame.width) / 2, y: bounds.height - view.frame.height))
+        }
     }
 }
 

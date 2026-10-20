@@ -282,7 +282,7 @@ private struct ToggleRow: View {
 
     var body: some View {
         Row(title: title, detail: detail) {
-            Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Theme.you)
+            ThemeSwitch(isOn: $isOn)
         }
     }
 }

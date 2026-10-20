@@ -40,7 +40,7 @@ enum HotKeys {
     }
 }
 
-/// Notices when a call app starts using the microphone, so the bubble can offer to take notes.
+/// Notices when a call app starts using the microphone, so the island can offer to take notes.
 /// It never starts recording by itself.
 @MainActor
 final class CallDetector {

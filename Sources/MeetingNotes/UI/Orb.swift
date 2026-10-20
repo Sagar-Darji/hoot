@@ -123,67 +123,66 @@ struct HootOrb: View {
     ], center: .center)
 
     var body: some View {
-        let animating = !reduceMotion && (mood == .listening || mood == .busy)
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !animating)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let level = CGFloat(meter.level)
-            let lift: CGFloat = mood == .listening ? level : (mood == .busy && animating ? CGFloat(0.5 + 0.5 * sin(t * 7)) : 0)
-            ZStack {
-                ring(angle: animating ? (t * 90).truncatingRemainder(dividingBy: 360) : 0, level: level)
-                GlassCrane(lift: lift, size: size)
-                    .saturation(mood == .sleeping ? 0.05 : 1)
-                    .opacity(mood == .sleeping ? 0.55 : 1)
-                    .shadow(color: .black.opacity(0.22), radius: size * 0.04, y: size * 0.03)
-                if mood == .saved {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: size * 0.38))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color(nsColor: .systemGreen))
-                        .background(Circle().fill(.black.opacity(0.4)))
-                        .offset(x: size * 0.36, y: size * 0.36)
-                        .transition(.scale.combined(with: .opacity))
-                }
+        if mood == .busy && !reduceMotion {
+            // Starting or saving: a gentle flap for the second or two it lasts.
+            TimelineView(.animation(minimumInterval: 1 / 15)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                orb(lift: CGFloat(0.5 + 0.5 * sin(t * 7)), angle: t * 90)
             }
-            .frame(width: size, height: size)
+        } else {
+            // Listening follows the voices: redrawn only when the meter moves (at most 15 times a second),
+            // so a quiet room — and every other state — costs nothing.
+            let listening = mood == .listening
+            orb(lift: listening ? CGFloat(meter.level) : 0,
+                angle: listening && !reduceMotion ? Date().timeIntervalSinceReferenceDate * 60 : 0)
         }
     }
 
-    /// A soft light ring in the two speakers' colours, swelling with the voices while listening.
+    private func orb(lift: CGFloat, angle: Double) -> some View {
+        ZStack {
+            ring(angle: angle.truncatingRemainder(dividingBy: 360), level: CGFloat(meter.level))
+            GlassCrane(lift: lift, size: size)
+                .modifier(Asleep(on: mood == .sleeping))
+                .modifier(SoftShadow(size: size))
+            if mood == .saved {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: size * 0.38))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color(nsColor: .systemGreen))
+                    .background(Circle().fill(.black.opacity(0.4)))
+                    .offset(x: size * 0.36, y: size * 0.36)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+
+    /// A soft light ring in the two speakers' colours, swelling with the voices while listening. Only its
+    /// rotation, scale and opacity change, so it's drawn once and then just moved.
     @ViewBuilder private func ring(angle: Double, level: CGFloat) -> some View {
         if mood == .listening || mood == .busy || glow {
             Circle()
-                .strokeBorder(Self.siri, lineWidth: size * (0.10 + level * 0.08))
-                .rotationEffect(.degrees(angle))
+                .strokeBorder(Self.siri, lineWidth: size * 0.14)
                 .blur(radius: size * 0.12)
-                .scaleEffect(1.12 + level * 0.12)
+                .rotationEffect(.degrees(angle))
+                .scaleEffect(1.12 + level * 0.14)
                 .opacity(mood == .listening ? 0.3 + Double(level) * 0.5 : 0.5)
         }
     }
-}
 
-/// Siri's thinking glow: a rotating band of colour around a window's edge while Apple Intelligence works.
-struct SiriEdgeGlow: View {
-    var active: Bool
-    var cornerRadius: CGFloat = 16
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Faded while the speech engine sleeps; left alone otherwise (no filter at all, not a no-op one).
+    private struct Asleep: ViewModifier {
+        let on: Bool
+        func body(content: Content) -> some View {
+            if on { content.saturation(0.05).opacity(0.55) } else { content }
+        }
+    }
 
-    var body: some View {
-        if active {
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
-                let angle = (context.date.timeIntervalSinceReferenceDate * 120).truncatingRemainder(dividingBy: 360)
-                let gradient = AngularGradient(colors: [
-                    HootMark.you, Color(red: 0.62, green: 0.45, blue: 1.0), HootMark.others,
-                    Color(red: 0.62, green: 0.45, blue: 1.0), HootMark.you,
-                ], center: .center, angle: .degrees(angle))
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(gradient, lineWidth: 10).blur(radius: 14).opacity(0.85)
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(gradient, lineWidth: 2.5).blur(radius: 1)
-                }
-            }
-            .allowsHitTesting(false)
-            .transition(.opacity)
+    /// A drop shadow only where it shows: at the notch's 20-point size it would be invisible but not free.
+    private struct SoftShadow: ViewModifier {
+        let size: CGFloat
+        func body(content: Content) -> some View {
+            if size >= 40 { content.shadow(color: .black.opacity(0.22), radius: size * 0.04, y: size * 0.03) } else { content }
         }
     }
 }

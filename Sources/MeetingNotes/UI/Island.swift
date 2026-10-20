@@ -149,6 +149,11 @@ struct IslandView: View {
 
     private let shoulder: CGFloat = 6
 
+    /// Content fades in just behind the growing shape, and leaves at once when it closes.
+    private static let reveal = AnyTransition.asymmetric(
+        insertion: .opacity.animation(.easeOut(duration: 0.18 * Theme.slowMotion).delay(0.05 * Theme.slowMotion)),
+        removal: .opacity.animation(.easeIn(duration: 0.08 * Theme.slowMotion)))
+
     private var mode: Mode {
         if let forceMode { return forceMode }
         if model.isOpen { return .panel }
@@ -172,12 +177,25 @@ struct IslandView: View {
         }
     }
 
+    /// What's below the header — the controls or the panel — at its full size. It's laid out once at
+    /// this size and revealed by the growing shape (or cut off by the shrinking one), rather than being
+    /// laid out again on every frame of the animation.
+    private func contentSize(_ mode: Mode) -> CGSize {
+        let size = bodySize(mode)
+        return CGSize(width: size.width - 36, height: size.height - notch.height)
+    }
+
     /// The window's size for a mode: the body plus room for the shadow while open. The window is set
     /// to this once per change (not on every animation frame), and the shape animates inside it.
     private func windowSize(_ mode: Mode) -> CGSize {
         let body = bodySize(mode)
         let opened = mode == .controls || mode == .panel
         return CGSize(width: body.width + 2 * shoulder + (opened ? 56 : 0), height: body.height + (opened ? 36 : 0))
+    }
+
+    /// The fixed area the island is drawn in: room for its largest states (the panel, the controls).
+    static func canvas(notch: CGSize) -> CGSize {
+        CGSize(width: max(600, notch.width + 280) + 2 * 6 + 56, height: notch.height + 1 + 560 + 36)
     }
 
     var body: some View {
@@ -187,15 +205,17 @@ struct IslandView: View {
             // The shadow is drawn from the plain shape only — cheap — not from everything inside it.
             shape.fill(Theme.surface)
                 .shadow(color: .black.opacity(open ? 0.45 : 0), radius: 18, y: 10)
-            VStack(spacing: 0) {
-                header.frame(height: notch.height)
+            ZStack(alignment: .top) {
+                header
+                    .frame(height: notch.height)
+                    .padding(.horizontal, shoulder + (open ? 18 : 10))
+                    .frame(width: size.width + 2 * shoulder)
                 switch mode {
-                case .controls: controls.transition(.opacity)
-                case .panel: panel.transition(.opacity)
+                case .controls: below(controls, .controls)
+                case .panel: below(panel, .panel)
                 default: EmptyView()
                 }
             }
-            .padding(.horizontal, shoulder + (open ? 18 : 10))
             .frame(width: size.width + 2 * shoulder, height: size.height, alignment: .top)
             .clipShape(shape)
         }
@@ -216,43 +236,52 @@ struct IslandView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
+    private func below(_ content: some View, _ mode: Mode) -> some View {
+        let size = contentSize(mode)
+        return content
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .padding(.top, notch.height)
+            .transition(Self.reveal)
+    }
+
     // MARK: The row beside the notch
 
+    /// The bird and the title keep their identity from state to state, so they glide along with the
+    /// island's edge as it grows instead of fading out in one place and in at another.
     @ViewBuilder private var header: some View {
         HStack(spacing: 8) {
+            if mode != .rest || prefs.restVisible {
+                crane(size: open ? 22 : (mode == .live ? 20 : 18))
+            }
+            if mode == .live || open { title.transition(Self.reveal) }
+            Spacer(minLength: mode == .rest ? 0 : notch.width)
             switch mode {
             case .rest:
-                if prefs.restVisible { crane(size: 18) }
-                Spacer(minLength: 0)
+                EmptyView()
             case .alert:
-                crane(size: 18)
-                Spacer(minLength: notch.width)
                 Circle()
                     .fill(recorder.status != nil ? Theme.warning : (recorder.modelDownload != nil ? Theme.secondary : Theme.you))
                     .frame(width: 8, height: 8)
                     .shadow(color: Theme.you.opacity(0.9), radius: 5)
             case .live:
-                crane(size: 20)
-                clock
-                Spacer(minLength: notch.width)
                 IslandWaveform(meter: recorder.meter)
-            case .controls, .panel:
-                crane(size: 22)
-                if recorder.state == .recording {
-                    clock
-                } else {
-                    Text(HootStatus.title(recorder)).font(Theme.Font.headline).foregroundStyle(Theme.text)
-                }
-                Spacer(minLength: notch.width)
-                if mode == .panel { panelHeaderControls } else { statusChip }
+            case .controls:
+                statusChip
+            case .panel:
+                panelHeaderControls
             }
         }
     }
 
-    private var clock: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in Text(HootStatus.title(recorder)) }
-            .font(Theme.Font.clock)
-            .foregroundStyle(Theme.text)
+    /// The running clock while recording, otherwise "Hoot" or what's happening.
+    @ViewBuilder private var title: some View {
+        if recorder.state == .recording {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in Text(HootStatus.title(recorder)) }
+                .font(Theme.Font.clock)
+                .foregroundStyle(Theme.text)
+        } else {
+            Text(HootStatus.title(recorder)).font(Theme.Font.headline).foregroundStyle(Theme.text)
+        }
     }
 
     private func crane(size: CGFloat) -> some View {
@@ -342,26 +371,25 @@ struct IslandView: View {
     }
 }
 
-/// Live voice bars: three for you (blue), three for the others (pink).
+/// Live voice bars: three for you (blue), three for the others (pink). Redrawn only when the voices
+/// change (at most 15 times a second), so silence costs nothing.
 struct IslandWaveform: View {
     @ObservedObject var meter: LiveMeter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 2.5) {
-                ForEach(0..<6, id: \.self) { i in
-                    let mine = i < 3
-                    let level = CGFloat(mine ? meter.me : meter.them)
-                    let wobble = reduceMotion ? 1 : 0.55 + 0.45 * abs(sin(t * 8 + Double(i) * 1.3))
-                    Capsule()
-                        .fill(mine ? Theme.you : Theme.others)
-                        .frame(width: 3, height: 4 + 14 * level * CGFloat(wobble))
-                }
+        let t = Date().timeIntervalSinceReferenceDate
+        HStack(spacing: 2.5) {
+            ForEach(0..<6, id: \.self) { i in
+                let mine = i < 3
+                let level = CGFloat(mine ? meter.me : meter.them)
+                let wobble = reduceMotion ? 1 : 0.55 + 0.45 * abs(sin(t * 8 + Double(i) * 1.3))
+                Capsule()
+                    .fill(mine ? Theme.you : Theme.others)
+                    .frame(width: 3, height: 4 + 14 * level * CGFloat(wobble))
             }
-            .frame(height: 18)
         }
+        .frame(height: 18)
         .accessibilityHidden(true)
     }
 }

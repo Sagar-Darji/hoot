@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         speakerNotes.save()
+        assist.stop()
         recorder.shutdown()
     }
 
@@ -108,12 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .statusBar + 1
         panel.anchorMidX = geometry.notch.midX
         panel.onCancel = { [weak self] in self?.island.close() }
-        let host = NSHostingView(rootView: IslandView(
-            model: island, recorder: recorder, assist: assist, updates: updates, prefs: prefs,
-            notes: speakerNotes, setup: setup, notch: geometry.notch.size,
-            onResize: { [weak panel] in panel?.fit($0) }))
-        host.sizingOptions = []                 // the island sizes its window (once per change), not AppKit
-        panel.contentView = host
+        // The island sizes its window (once per change), not AppKit.
+        panel.contentView = IslandHostingView.pinned(
+            IslandView(model: island, recorder: recorder, assist: assist, updates: updates, prefs: prefs,
+                       notes: speakerNotes, setup: setup, notch: geometry.notch.size,
+                       onResize: { [weak panel] in panel?.fit($0) }),
+            canvas: IslandView.canvas(notch: geometry.notch.size), in: geometry.notch.size)
         panel.setFrame(geometry.notch, display: false)
         panel.orderFrontRegardless()
         window = panel
@@ -142,14 +143,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Showcase
 
     /// Opens the island on one tab with sample content, so the design can be reviewed in a screenshot.
+    /// "live-transcript" (or live-notes, …) opens the tab during a sample recording.
     private func showcase(_ tab: String) {
         if ProcessInfo.processInfo.environment["HOOT_BACKDROP"] != nil { showBackdrop() }
-        recorder.loadShowcase(live: tab == "live")
+        recorder.loadShowcase(live: tab == "live" || tab.hasPrefix("live-"))
         assist.loadShowcase()
         speakerNotes.loadShowcase()
         switch tab {
         case "live":
+            if ProcessInfo.processInfo.environment["HOOT_VOICES"] != nil {
+                let meter = recorder.meter
+                Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { _ in
+                    MainActor.assumeIsolated { meter.update(me: .random(in: 0...1), them: .random(in: 0...0.6)) }
+                }
+            }
             return
+        case "bench":
+            runBench()
+        case "flap":
+            // Opens and closes the panel over and over, for profiling the animation.
+            recorder.callHint = nil
+            let island = island
+            Timer.scheduledTimer(withTimeInterval: 0.7 * Theme.slowMotion, repeats: true) { _ in
+                MainActor.assumeIsolated { island.isOpen ? island.close() : island.open(.transcript) }
+            }
         case "controls":
             // Announce the sample call once the island exists, so the controls drop down like they would for real.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -158,8 +175,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         default:
             island.pinned = true
-            island.open(IslandModel.Tab(rawValue: tab) ?? .transcript)
+            island.open(IslandModel.Tab(rawValue: tab.replacingOccurrences(of: "live-", with: "")) ?? .transcript)
         }
+    }
+
+    /// `HOOT_SHOWCASE=bench`: steps the island through every state and prints, for each change, the frames
+    /// the main thread missed and the CPU it used — the numbers behind "does it feel smooth".
+    private func runBench() {
+        recorder.callHint = nil
+        island.peeking = false
+        guard let view = window?.contentView else { return }
+        let probe = FrameProbe(view)
+        let meter = recorder.meter
+        let island = island, recorder = recorder
+        var voices: Timer?
+        let steps: [(String, () -> Void)] = [
+            ("at rest", {}),
+            ("hover: controls", { island.peek(seconds: 60) }),
+            ("open Transcript", { island.open(.transcript) }),
+            ("tab Notes", { island.open(.notes) }),
+            ("tab AI", { island.open(.assist) }),
+            ("tab Settings", { island.open(.settings) }),
+            ("tab Transcript", { island.open(.transcript) }),
+            ("close", { island.close(); island.peeking = false }),
+            ("recording, voices", {
+                recorder.loadShowcase(live: true)
+                voices = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { _ in
+                    MainActor.assumeIsolated { meter.update(me: .random(in: 0...1), them: .random(in: 0...0.6)) }
+                }
+            }),
+            ("hover while recording", { island.peek(seconds: 60) }),
+            ("open while recording", { island.open(.transcript) }),
+            ("close while recording", { island.close(); island.peeking = false }),
+        ]
+        func cpuSeconds() -> Double {
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
+                + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
+        }
+        func run(_ i: Int) {
+            guard i < steps.count else {
+                voices?.invalidate()
+                exit(0)
+            }
+            probe.reset()
+            let cpu = cpuSeconds()
+            steps[i].1()
+            // The change itself (animation included), then how much it costs to stay there.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let r = probe.report()
+                let changeCPU = (cpuSeconds() - cpu) / 0.6 * 100
+                let steady = cpuSeconds()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    let name = steps[i].0.padding(toLength: 24, withPad: " ", startingAt: 0)
+                    print(name + String(format: "missed %2d of %3d frames, worst %5.1f ms, change CPU %4.1f%%, then %4.1f%%",
+                                        r.missed, r.frames + r.missed, r.worst, changeCPU, (cpuSeconds() - steady) / 1.2 * 100))
+                    fflush(stdout)
+                    run(i + 1)
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { run(0) }
     }
 
     /// A clean wallpaper-like gradient behind everything, so product screenshots show no desktop content.
@@ -210,6 +287,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettingsFromMenu() { island.open(.settings) }
+}
+
+/// Counts the display frames the main thread missed, for `HOOT_SHOWCASE=bench`.
+final class FrameProbe: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [CFTimeInterval] = []
+
+    init(_ view: NSView) {
+        super.init()
+        link = view.displayLink(target: self, selector: #selector(tick(_:)))
+        link?.add(to: .main, forMode: .common)
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append(link.timestamp - last) }
+        last = link.timestamp
+    }
+
+    func reset() {
+        intervals = []
+        last = 0
+    }
+
+    func report() -> (frames: Int, missed: Int, worst: Double) {
+        let period = link?.duration ?? 1.0 / 60
+        let missed = intervals.reduce(0) { $0 + max(0, Int(($1 / period).rounded()) - 1) }
+        return (intervals.count, missed, (intervals.max() ?? 0) * 1000)
+    }
 }
 
 /// `MeetingNotes --transcribe-file <audio>` runs a file through the same chunker + Whisper path

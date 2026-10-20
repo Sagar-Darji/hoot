@@ -53,7 +53,27 @@ final class FloatingPanel: NSPanel {
         guard grown != size else { return }
         let shrink = DispatchWorkItem { apply(size) }
         pendingShrink = shrink
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: shrink)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5 * Theme.slowMotion, execute: shrink)
+    }
+}
+
+/// The island's SwiftUI host. The first click acts at once (Record, a tab…) instead of only focusing
+/// the panel, which would make every first click feel ignored.
+final class IslandHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// A window-sized view that holds the island at a fixed size, pinned to its top centre. The window
+    /// grows and shrinks around it like a viewport, so SwiftUI never sees a size change — which would
+    /// otherwise be animated along with the island, sliding it about, and cost a layout pass.
+    static func pinned(_ rootView: Content, canvas: CGSize, in size: CGSize) -> NSView {
+        let host = IslandHostingView(rootView: rootView)
+        host.sizingOptions = []
+        host.frame = NSRect(x: (size.width - canvas.width) / 2, y: size.height - canvas.height,
+                            width: canvas.width, height: canvas.height)
+        host.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.addSubview(host)
+        return container
     }
 }
 
@@ -73,7 +93,6 @@ struct TranscriptPane: View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
                 ThemeSegmented(selection: $ui.showSummary, items: [(false, "Conversation", nil), (true, "Summary", nil)])
-                    .disabled(recorder.isRecording)
                 Spacer()
                 ThemeIconButton(symbol: ui.copied ? "checkmark" : "doc.on.doc",
                                 help: ui.showSummary ? "Copy the summary" : "Copy the transcript", action: copy)
@@ -191,7 +210,7 @@ struct SummaryView: View {
             VStack(spacing: 14) {
                 ThemeEmpty(symbol: "apple.intelligence",
                            title: recorder.summaryError == nil ? "No summary yet" : "Summary unavailable",
-                           message: recorder.summaryError ?? (recorder.lines.isEmpty
+                           message: recorder.summaryError ?? (recorder.lines.isEmpty || recorder.isRecording
                                 ? "When you stop recording, the summary and action items appear here."
                                 : "Get the summary, decisions and action items for this conversation."))
                     .frame(maxHeight: 180)

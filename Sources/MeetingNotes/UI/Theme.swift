@@ -29,7 +29,9 @@ enum Theme {
     static let control: CGFloat = 30                         // height of buttons and tabs
 
     // Motion
-    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.82)
+    /// `HOOT_SLOWMO=10` slows the island's animations down tenfold, to check every frame of them.
+    static let slowMotion = Double(ProcessInfo.processInfo.environment["HOOT_SLOWMO"] ?? "") ?? 1
+    static let spring = Animation.spring(response: 0.34 * slowMotion, dampingFraction: 0.8)
     static let quick = Animation.snappy(duration: 0.2)
 
     // Type
@@ -127,6 +129,26 @@ struct ThemeButton: View {
         case .primary: return .black
         default: return Theme.text
         }
+    }
+}
+
+/// An on/off switch in Hoot's colours. The system switch turns grey in a window that isn't active —
+/// and the island never makes Hoot the active app — so on and off would look nearly the same.
+struct ThemeSwitch: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button { withAnimation(Theme.quick) { isOn.toggle() } } label: {
+            Capsule()
+                .fill(isOn ? Theme.you : Theme.raisedHover)
+                .frame(width: 38, height: 22)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle().fill(.white).padding(2).shadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityRepresentation { Toggle("", isOn: $isOn) }
     }
 }
 

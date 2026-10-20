@@ -51,7 +51,7 @@ final class Track {
     private var noiseFloor: Float = 0.002
     private var smoothedLevel: Float = 0
 
-    /// Loudness right now, 0…1, for the little level meter in the bubble.
+    /// Loudness right now, 0…1, for the voice bars in the island.
     var level: Float {
         lock.lock(); defer { lock.unlock() }
         return smoothedLevel

@@ -49,9 +49,17 @@ final class Recorder: ObservableObject {
     @Published private(set) var summary: String?           // on-device summary of the last meeting
     @Published private(set) var summarizing = false
     @Published private(set) var summaryError: String?
-    /// "Zoom" while a call app is using the mic and we're idle. Seeing a call warms up the speech engine.
+    /// "Zoom" while a call app is using the mic and we're idle. Seeing a call warms up the speech engine;
+    /// a call that ends unrecorded lets it go again.
     @Published var callHint: String? {
-        didSet { if callHint != nil { warmUp() } }
+        didSet {
+            if callHint != nil {
+                warmUp()
+                scheduleUnload(after: 600)      // not held through a whole call that nobody records
+            } else if oldValue != nil, state == .idle {
+                scheduleUnload()
+            }
+        }
     }
     let meter = LiveMeter()
     private var callApp: String?
@@ -148,7 +156,7 @@ final class Recorder: ObservableObject {
         unloadTask?.cancel()
         unloadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.state == .idle, self.pendingChunks == 0, self.callHint == nil else { return }
+            guard let self, !Task.isCancelled, self.state == .idle, self.pendingChunks == 0 else { return }
             self.whisper.stop()
             self.engine = .unloaded
         }
@@ -494,7 +502,7 @@ final class Recorder: ObservableObject {
         return df.string(from: date) + (app.map { " · \($0)" } ?? "")
     }
 
-    /// The bubble never takes focus, so the frontmost app is usually the call you're in.
+    /// Hoot never becomes the active app, so the frontmost app is usually the call you're in.
     private static func frontmostCallApp() -> String? {
         let known = [
             "us.zoom.xos": "Zoom",

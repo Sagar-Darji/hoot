@@ -20,7 +20,7 @@ struct AssistPane: View {
     var body: some View {
         VStack(spacing: 10) {
             header
-            if assist.autoRead && !assist.axTrusted && !ui.showingDrop { permissionBanner }
+            if assist.autoRead && !assist.axTrusted && !assist.sampleOnly && !ui.showingDrop { permissionBanner }
             Group {
                 if ui.showingDrop {
                     dropView

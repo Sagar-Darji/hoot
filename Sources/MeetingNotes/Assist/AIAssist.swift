@@ -65,6 +65,9 @@ final class AIAssist: ObservableObject {
     /// for Hoot and avoids slowing the AI apps down by reading them needlessly.
     private var lastActive: [pid_t: Date] = [:]
     private var activationObserver: NSObjectProtocol?
+    /// Apps whose accessibility tree Hoot has switched on (Electron apps build it only on request).
+    private var reading: Set<pid_t> = []
+    private(set) var sampleOnly = false
 
     var current: AIEntry? { entries.indices.contains(index) ? entries[index] : nil }
 
@@ -146,7 +149,10 @@ final class AIAssist: ObservableObject {
     }
 
     /// Sample answers for `HOOT_SHOWCASE=1` (design review screenshots only).
+    /// Sample answers for product images. Nothing real is read while they're shown — no AI apps, no
+    /// clipboard — so a screenshot can't pick up anything private.
     func loadShowcase() {
+        sampleOnly = true
         add(source: "ChatGPT", text: "Typical B2B SaaS net revenue retention is **100–120%**.")
         add(source: "Claude", text: "**Q3 revenue grew 18% year over year**, driven mainly by the enterprise plan (+31%).\n\nTalking points:\n• Enterprise seats up 2.4×\n• Churn down to 1.8% monthly\n• Launch on **November 5** keeps us ahead of the holiday freeze")
         hasUnseen = false
@@ -171,11 +177,13 @@ final class AIAssist: ObservableObject {
     // MARK: Intake
 
     private func tick() {
+        guard !sampleOnly else { return }
         checkClipboard()
         if !axTrusted { axTrusted = AXIsProcessTrusted() }
         let visible = isVisible()
-        guard autoRead, axTrusted, !axBusy, Date().timeIntervalSince(lastAXPoll) >= (visible ? 1.5 : 3),
-              visible || isRecording() else { return }
+        // Read the AI apps only during a meeting or while the AI tab is open — otherwise let go of them.
+        guard autoRead, axTrusted, visible || isRecording() else { return release(reading) }
+        guard !axBusy, Date().timeIntervalSince(lastAXPoll) >= (visible ? 1.5 : 3) else { return }
         lastAXPoll = Date()
         let now = Date()
         let running = NSWorkspace.shared.runningApplications.compactMap { app -> (pid_t, String)? in
@@ -183,6 +191,8 @@ final class AIAssist: ObservableObject {
             let recentlyUsed = app.isActive || now.timeIntervalSince(lastActive[app.processIdentifier] ?? .distantPast) < 180
             return recentlyUsed ? (app.processIdentifier, name) : nil
         }
+        release(reading.subtracting(running.map(\.0)))
+        reading.formUnion(running.map(\.0))
         guard !running.isEmpty else { return }
         axBusy = true
         let reader = reader
@@ -194,6 +204,23 @@ final class AIAssist: ObservableObject {
                 for (source, text) in found { self.add(source: source, text: text) }
             }
         }
+    }
+
+    /// Stops reading these apps and lets them switch their accessibility tree back off: Electron apps
+    /// (Claude) keep it up to date — and pay for it — for as long as it's on.
+    private func release(_ pids: Set<pid_t>) {
+        guard !pids.isEmpty else { return }
+        reading.subtract(pids)
+        let reader = reader, voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+        axQueue.async { reader.release(pids, keepOn: voiceOver) }
+    }
+
+    /// When Hoot quits, nothing it switched on is left running.
+    func stop() {
+        timer?.invalidate()
+        let pids = reading, reader = reader, voiceOver = NSWorkspace.shared.isVoiceOverEnabled
+        reading = []
+        axQueue.sync { reader.release(pids, keepOn: voiceOver) }
     }
 
     private func checkClipboard() {
@@ -283,6 +310,18 @@ final class AXReader: @unchecked Sendable {
             }
         }
         return out
+    }
+
+    /// Forgets these apps and switches their accessibility tree back off — unless VoiceOver is running,
+    /// which needs it on.
+    func release(_ pids: Set<pid_t>, keepOn: Bool) {
+        for pid in pids {
+            states[pid] = nil
+            guard !keepOn else { continue }
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.6)
+            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanFalse)
+        }
     }
 
     /// Diagnostic: what Hoot can read from each running AI app (`open -a Hoot --args --ax-dump <file>`).

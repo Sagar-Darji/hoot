@@ -215,12 +215,19 @@ final class AIAssist: ObservableObject {
         axQueue.async { reader.release(pids, keepOn: voiceOver) }
     }
 
-    /// When Hoot quits, nothing it switched on is left running.
+    /// When Hoot quits, nothing it switched on is left running. Waits a second at most, so a busy AI app
+    /// can't hold up quitting.
     func stop() {
         timer?.invalidate()
         let pids = reading, reader = reader, voiceOver = NSWorkspace.shared.isVoiceOverEnabled
         reading = []
-        axQueue.sync { reader.release(pids, keepOn: voiceOver) }
+        guard !pids.isEmpty else { return }
+        let done = DispatchSemaphore(value: 0)
+        axQueue.async {
+            reader.release(pids, keepOn: voiceOver)
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 1)
     }
 
     private func checkClipboard() {

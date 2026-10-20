@@ -414,6 +414,21 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-forms
     exit(0)
 }
 
+/// `MeetingNotes --render-installer <dir>`: the install window's background at 1x and 2x, for `package.sh`.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-installer" {
+    MainActor.assumeIsolated {
+        let dir = URL(fileURLWithPath: CommandLine.arguments[2])
+        for (scale, name) in [(1.0, "background.png"), (2.0, "background@2x.png")] {
+            let renderer = ImageRenderer(content: InstallerBackground())
+            renderer.scale = scale
+            if let cg = renderer.cgImage, let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) {
+                try? png.write(to: dir.appendingPathComponent(name))
+            }
+        }
+    }
+    exit(0)
+}
+
 /// `MeetingNotes --render-island <dir>`: the island's states as transparent PNGs, for the website.
 if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-island" {
     MainActor.assumeIsolated {

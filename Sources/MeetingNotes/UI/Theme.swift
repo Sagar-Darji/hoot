@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// Hoot's design system. Everything Hoot shows grows out of the notch on one black surface (like the
-/// Dynamic Island), so a single set of colours, type, shapes and controls keeps every screen consistent.
+/// Hoot's design system. Everything Hoot shows grows out of the notch on one surface (like the Dynamic
+/// Island), so a single set of colours, type, shapes and controls keeps every screen consistent.
 enum Theme {
     // Surfaces
-    static let surface = Color.black                         // the island itself
+    static let surface = Color.black                         // the island where it meets the notch
+    static let glassShade = Color.black.opacity(0.45)        // over the glass below it: readable on any background
     static let raised = Color.white.opacity(0.07)             // cards, fields, message bubbles
     static let raisedHover = Color.white.opacity(0.12)
     static let separator = Color.white.opacity(0.08)

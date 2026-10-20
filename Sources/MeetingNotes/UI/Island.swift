@@ -126,7 +126,7 @@ final class IslandModel: ObservableObject {
     }
 }
 
-/// Hoot as a Dynamic Island: one continuous black surface that grows out of the notch.
+/// Hoot as a Dynamic Island: one continuous surface that grows out of the notch, black where it meets it.
 /// - rest: a small glass crane beside the notch, so you always know Hoot is there,
 /// - live (recording): crane and timer on the left, live voice bars on the right,
 /// - controls (hover, or a call/answer to announce): a live caption, Record and quick links,
@@ -165,7 +165,7 @@ struct IslandView: View {
 
     private var open: Bool { mode == .controls || mode == .panel }
 
-    /// The black body (shoulders excluded). Never smaller than the notch, so none of it peeks out.
+    /// The body (shoulders excluded). Never smaller than the notch, so none of it peeks out.
     private func bodySize(_ mode: Mode) -> CGSize {
         let h = notch.height + 1
         switch mode {
@@ -202,9 +202,7 @@ struct IslandView: View {
         let size = bodySize(mode)
         let shape = IslandShape(bottomRadius: open ? Theme.islandRadius : 11, shoulder: shoulder)
         ZStack(alignment: .top) {
-            // The shadow is drawn from the plain shape only — cheap — not from everything inside it.
-            shape.fill(Theme.surface)
-                .shadow(color: .black.opacity(open ? 0.45 : 0), radius: 18, y: 10)
+            surface(shape)
             ZStack(alignment: .top) {
                 header
                     .frame(height: notch.height)
@@ -219,7 +217,7 @@ struct IslandView: View {
             .frame(width: size.width + 2 * shoulder, height: size.height, alignment: .top)
             .clipShape(shape)
         }
-        .frame(width: size.width + 2 * shoulder, height: size.height)
+        .frame(width: size.width + 2 * shoulder, height: size.height, alignment: .top)
         .contentShape(shape)
         .environment(\.colorScheme, .dark)
         .onHover { model.setHovering($0) }
@@ -234,6 +232,37 @@ struct IslandView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Hoot")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Black where the island meets the notch, so the two read as one; below that, dark glass that lets
+    /// what's behind show through. Closed, the island is only the black row.
+    private func surface(_ shape: IslandShape) -> some View {
+        let solid = notch.height + 1
+        let band = solid + 26
+        return ZStack(alignment: .top) {
+            // The shadow is drawn from the plain shape only — cheap — and only outside it: inside, the
+            // glass would pick it up.
+            shape.fill(.black)
+                .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+                .mask {
+                    Rectangle().padding(-64)
+                        .overlay(shape.blendMode(.destinationOut))
+                        .compositingGroup()
+                }
+                .opacity(open ? 1 : 0)
+            Color.clear.glassEffect(.regular, in: shape)
+            // An overlay, so the band's height never adds to the island's (a taller child would push
+            // the header up out of the closed island).
+            shape.fill(Theme.glassShade)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(LinearGradient(stops: [.init(color: Theme.surface, location: solid / band),
+                                                     .init(color: Theme.surface.opacity(0), location: 1)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(height: band)
+                }
+                .clipShape(shape)
+        }
     }
 
     private func below(_ content: some View, _ mode: Mode) -> some View {

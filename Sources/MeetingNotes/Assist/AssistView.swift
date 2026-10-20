@@ -43,7 +43,7 @@ struct AssistPane: View {
         HStack(spacing: 8) {
             if let entry = assist.current, !ui.showingDrop {
                 sourceChip(entry)
-                (Text(entry.time, style: .relative) + Text(" ago"))
+                Text("\(Text(entry.time, style: .relative)) ago")
                     .font(Theme.Font.caption).foregroundStyle(Theme.tertiary)
             } else {
                 Text(ui.showingDrop ? "Send from another device" : "AI Assist")

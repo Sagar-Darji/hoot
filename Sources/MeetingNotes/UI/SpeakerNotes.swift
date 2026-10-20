@@ -95,6 +95,11 @@ struct NotesPane: View {
                     ThemeIconButton(symbol: "arrow.clockwise", help: "Get the latest text now (also every 30 seconds)") {
                         Task { await doc.refresh() }
                     }
+                    ThemeIconButton(symbol: "link", help: "Change or unlink the document") {
+                        ui.linkDraft = doc.link
+                        ui.editingLink = true
+                    }
+                    .disabled(ui.editingLink)
                 }
                 ThemeIconButton(symbol: prompter.playing ? "stop.fill" : "play.fill",
                                 help: prompter.playing ? "Back to editing" : "Teleprompter: scroll the text while you present") {
@@ -234,6 +239,13 @@ struct NotesPane: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(Theme.Font.callout).foregroundStyle(Theme.warning)
             }
             HStack(spacing: 8) {
+                if ui.editingLink && !doc.link.isEmpty {
+                    ThemeButton(title: "Unlink") {
+                        doc.unlink()
+                        ui.editingLink = false
+                        ui.linkDraft = ""
+                    }
+                }
                 Spacer()
                 if ui.editingLink { ThemeButton(title: "Cancel") { ui.editingLink = false } }
                 ThemeButton(title: "Show Document", role: .primary, action: submitLink)
